@@ -27,6 +27,11 @@ p { line-height: 1.5; }
 
 .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin-bottom: 12px; }
 .card a.title { color: var(--ink); text-decoration: none; font-weight: 700; font-size: 1.1rem; display: block; }
+a.cardlink { display: block; color: var(--ink); text-decoration: none; }
+a.cardlink .title { font-weight: 700; font-size: 1.1rem; }
+a.cardlink .title::after { content: " ›"; color: var(--accent); }
+a.cardlink:hover, a.cardlink:active { border-color: var(--accent); }
+.card .badge + .status-big { margin-top: 8px; }
 .row { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
 
 .status-big { font-size: 1.8rem; font-weight: 800; margin: 6px 0 2px; }
@@ -81,7 +86,7 @@ footer p { margin: 12px 0 0; }
 
 @media (prefers-color-scheme: dark) {
   /* Tummassa tilassa ääriviivanapit hukkuvat taustaan -> oranssi reunus */
-  button.secondary, .tabs button { border-color: var(--accent); }
+  button.secondary, .tabs button, a.cardlink { border-color: var(--accent); }
   .grid button { border-color: var(--muted); }
   .grid button.active { border-color: var(--accent); }
   input[type=text], input[type=number], input[type=password], select { border-color: var(--muted); }

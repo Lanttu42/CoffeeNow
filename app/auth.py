@@ -102,16 +102,23 @@ def logout(request: Request, response: Response):
 def me(request: Request):
     user = security.current_user(request)
     if not user:
-        return {"user": None, "orgs": []}
+        return {"user": None, "orgs": [], "machines": []}
     with db.connect() as con:
         orgs = con.execute(
             "SELECT o.id, o.name, m.is_manager, (o.founder_id = ?) AS is_founder"
             " FROM memberships m JOIN orgs o ON o.id = m.org_id WHERE m.user_id = ? ORDER BY o.name",
             (user["id"], user["id"]),
         ).fetchall()
+        # Organisaatioiden keittimet kuuluvat jäsenen omiin keittimiin kaikilla laitteilla
+        machines = con.execute(
+            "SELECT m.id, m.name, m.org_id FROM machines m JOIN memberships ms ON ms.org_id = m.org_id"
+            " WHERE ms.user_id = ? ORDER BY m.name COLLATE NOCASE",
+            (user["id"],),
+        ).fetchall()
     return {
         "user": user,
         "orgs": [{"id": o["id"], "name": o["name"], "is_manager": bool(o["is_manager"]), "is_founder": bool(o["is_founder"])} for o in orgs],
+        "machines": [dict(m) for m in machines],
     }
 
 

@@ -157,6 +157,9 @@ def run():
     check("anonyymi ei voi seurata",
           anon.call("POST", f"/api/machines/{pid}/follow", {"device_id": anon.device, "subscription": fake_subscription("anon")})[0] == 401)
 
+    me = bob.call("GET", "/api/auth/me")[1]
+    check("jäsenen /me sisältää organisaation keittimet", any(x["id"] == pid for x in me["machines"]), me)
+    check("ulkopuolisen /me ei sisällä niitä", not any(x["id"] == pid for x in eve.call("GET", "/api/auth/me")[1]["machines"]))
     s, m = bob.call("GET", f"/api/machines/{pid}")
     check("jäsen näkee keittimen", s == 200 and m["name"] == "Salainen keitin" and m["org"]["is_manager"] is False)
     s, m = bob.call("POST", f"/api/machines/{pid}/status", {"status": "brewing", "cups": 6, "device_id": bob.device})

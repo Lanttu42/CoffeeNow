@@ -28,10 +28,12 @@ function deviceId() {
   if (!id) { id = crypto.randomUUID(); store.set("deviceId", id); }
   return id;
 }
-const myMachines = () => store.get("machines", []);
-const isMine = (id) => myMachines().some((m) => m.id === id);
+const myMachines = () => store.get("machines", []);   // tällä laitteella lisätyt
+const isLocal = (id) => myMachines().some((m) => m.id === id);
+// Omat = tällä laitteella lisätyt + kaikkien omien organisaatioiden keittimet
+const isMine = (id) => isLocal(id) || ME.machines.some((m) => m.id === id);
 function addMine(m) {
-  if (!isMine(m.id)) store.set("machines", [...myMachines(), { id: m.id, name: m.name }]);
+  if (!isLocal(m.id)) store.set("machines", [...myMachines(), { id: m.id, name: m.name }]);
 }
 function removeMine(id) {
   store.set("machines", myMachines().filter((m) => m.id !== id));
@@ -72,10 +74,10 @@ async function api(path, options = {}) {
 
 // ---------- kirjautunut käyttäjä ----------
 
-let ME = { user: null, orgs: [] };
+let ME = { user: null, orgs: [], machines: [] };
 
 async function loadMe() {
-  try { ME = await api("/api/auth/me"); } catch { ME = { user: null, orgs: [] }; }
+  try { ME = await api("/api/auth/me"); } catch { ME = { user: null, orgs: [], machines: [] }; }
   const link = document.getElementById("account-link");
   link.textContent = ME.user ? ME.user.username : "Kirjaudu";
 }
@@ -170,7 +172,9 @@ function pushHint() {
 // ---------- näkymät ----------
 
 async function viewHome(app) {
-  const machines = myMachines();
+  const local = myMachines();
+  const localIds = new Set(local.map((m) => m.id));
+  const machines = [...local, ...ME.machines.filter((m) => !localIds.has(m.id))];
   app.append(h("h1", {}, "Omat kahvinkeittimet"));
 
   if (!machines.length) {
@@ -185,6 +189,7 @@ async function viewHome(app) {
     api(`/api/machines/${m.id}`).then((data) => {
       card.replaceChildren(
         h("a", { class: "title", href: `/m/${m.id}` }, data.name),
+        data.org ? h("span", { class: "badge" }, data.org.name) : null,
         h("div", { class: "status-big" }, statusText(data)),
         h("div", { class: "row" },
           h("span", { class: "muted" }, ago(data.updated_at)),
@@ -349,7 +354,7 @@ async function viewMachine(app, id) {
     h("h2", {}, "Muuta"),
     h("div", { class: "row" },
       h("button", { class: "secondary", onclick: () => go(`/m/${id}/qr`) }, "Näytä QR-koodi"),
-      h("button", {
+      isLocal(id) && h("button", {
         class: "secondary",
         onclick: async () => {
           if (followed().includes(id)) { try { await unfollow(id); } catch {} }
@@ -461,13 +466,16 @@ async function viewAccount(app) {
   app.append(h("h2", {}, "Organisaatiot"));
   if (!ME.orgs.length) app.append(h("p", { class: "muted" }, "Et kuulu vielä mihinkään organisaatioon."));
   for (const o of ME.orgs) {
-    app.append(h("div", { class: "card" },
+    app.append(h("a", { class: "card cardlink", href: `/org/${o.id}` },
       h("div", { class: "row" },
-        h("a", { class: "title", href: `/org/${o.id}` }, o.name),
+        h("span", { class: "title" }, o.name),
         h("span", { class: "badge" }, o.is_founder ? "Perustaja" : o.is_manager ? "Ylläpitäjä" : "Jäsen"))));
   }
 
-  app.append(h("h2", {}, "Liity organisaatioon"), joinForm((org) => go(`/org/${org.id}`)));
+  app.append(
+    h("h2", {}, "Liity organisaatioon"),
+    joinForm((org) => go(`/org/${org.id}`)),
+    h("p", { class: "muted" }, "Voit liittyä useaan organisaatioon. Kaikkien organisaatioidesi keittimet näkyvät etusivulla."));
 
   const name = h("input", { type: "text", maxlength: "60", placeholder: "esim. Kofeiinikopla", required: true });
   const auto = h("input", { type: "checkbox" });
