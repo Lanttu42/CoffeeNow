@@ -79,6 +79,14 @@ form.card button[type=submit], details form button[type=submit] { width: 100%; }
 footer { max-width: 520px; margin: 0 auto; padding: 0 16px calc(env(safe-area-inset-bottom) + 32px); color: var(--muted); font-size: .8rem; line-height: 1.5; border-top: 1px solid var(--line); }
 footer p { margin: 12px 0 0; }
 
+@media (prefers-color-scheme: dark) {
+  /* Tummassa tilassa ääriviivanapit hukkuvat taustaan -> oranssi reunus */
+  button.secondary, .tabs button { border-color: var(--accent); }
+  .grid button { border-color: var(--muted); }
+  .grid button.active { border-color: var(--accent); }
+  input[type=text], input[type=number], input[type=password], select { border-color: var(--muted); }
+}
+
 @media print {
   header, footer, .no-print, .toast { display: none !important; }
   body, main { background: #fff; }
