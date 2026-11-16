@@ -21,6 +21,8 @@ from . import auth, db, orgs, push, security
 STATIC = Path(__file__).parent / "static"
 
 WISH_TTL = 2 * 3600          # toive vanhenee 2 tunnissa
+BREW_COOLDOWN = 20 * 60     # sama käyttäjä saa samasta keittimestä enintään yhden pannun tässä ajassa
+TOP_N = 10
 RATE_LIMIT_SECONDS = 5       # sama IP ei voi hakata samaa keitintä tätä tiheämmin
 
 Status = Literal["ready", "brewing", "low", "empty", "supplies_low", "supplies_out"]
@@ -209,12 +211,20 @@ def set_status(machine_id: str, body: StatusUpdate, request: Request, bg: Backgr
     machine_id = _valid_id(machine_id)
     cups = body.cups if body.status == "brewing" else None
     with db.connect() as con:
-        row, mem, _ = _load_authorized(con, machine_id, request)
+        row, mem, user = _load_authorized(con, machine_id, request)
         _rate_limit(request, machine_id)
+        now = time.time()
         con.execute(
             "UPDATE machines SET status = ?, cups = ?, updated_at = ? WHERE id = ?",
-            (body.status, cups, time.time(), machine_id),
+            (body.status, cups, now, machine_id),
         )
+        # Pannu kirjautuneelle: "tulossa", tai "on" ilman edeltävää "tulossa"-ilmoitusta (keitti ilmoittamatta)
+        brewed = body.status == "brewing" or (body.status == "ready" and row["status"] != "brewing")
+        if user and brewed and not con.execute(
+            "SELECT 1 FROM brews WHERE machine_id = ? AND user_id = ? AND created_at > ?",
+            (machine_id, user["id"], now - BREW_COOLDOWN),
+        ).fetchone():
+            con.execute("INSERT INTO brews (machine_id, user_id, created_at) VALUES (?, ?, ?)", (machine_id, user["id"], now))
         # Kun kahvia on tai on tulossa, toiveet on täytetty -> nollataan
         if body.status in ("ready", "brewing"):
             con.execute("DELETE FROM wishes WHERE machine_id = ?", (machine_id,))
@@ -225,6 +235,20 @@ def set_status(machine_id: str, body: StatusUpdate, request: Request, bg: Backgr
         text += f" ({cups} kuppia)"
     bg.add_task(push.notify_machine, machine_id, row["name"], text, body.device_id)
     return result
+
+
+@app.get("/api/machines/{machine_id}/top")
+def top_brewers(machine_id: str, request: Request):
+    machine_id = _valid_id(machine_id)
+    with db.connect() as con:
+        _, _, user = _load_authorized(con, machine_id, request)
+        rows = con.execute(
+            "SELECT u.username, COUNT(*) AS brews, MAX(b.created_at) AS last FROM brews b JOIN users u ON u.id = b.user_id"
+            " WHERE b.machine_id = ? GROUP BY b.user_id ORDER BY brews DESC, last ASC LIMIT ?",
+            (machine_id, TOP_N),
+        ).fetchall()
+    return {"top": [{"username": r["username"], "brews": r["brews"]} for r in rows],
+            "me": user["username"] if user else None}
 
 
 @app.post("/api/machines/{machine_id}/wish")

@@ -39,6 +39,14 @@ a.cardlink:hover, a.cardlink:active { border-color: var(--accent); }
 .status-row .mins { flex: none; min-width: 4.2em; text-align: right; color: var(--muted); font-size: .9rem; font-variant-numeric: tabular-nums; }
 .status-icon { flex: none; color: var(--ink); }
 .status-icon.faded { opacity: .35; }
+.top-list { list-style: none; padding: 4px 16px; margin: 0 0 12px; }
+.top-list li { display: flex; gap: 10px; align-items: baseline; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.top-list li:last-child { border-bottom: 0; }
+.top-list .rank { flex: none; width: 2em; color: var(--muted); font-variant-numeric: tabular-nums; }
+.top-list .who { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.top-list .brews { flex: none; color: var(--muted); font-size: .9rem; }
+.top-list li:nth-child(-n+3) .rank { color: var(--accent); font-weight: 800; }
+.top-list li.me .who::after { content: " (sinä)"; color: var(--muted); font-weight: 400; }
 .status-meta { justify-content: flex-start; margin: 6px 0 12px; }
 .row { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
 

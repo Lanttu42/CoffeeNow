@@ -160,6 +160,23 @@ def run():
     me = bob.call("GET", "/api/auth/me")[1]
     check("jäsenen /me sisältää organisaation keittimet", any(x["id"] == pid for x in me["machines"]), me)
     check("ulkopuolisen /me ei sisällä niitä", not any(x["id"] == pid for x in eve.call("GET", "/api/auth/me")[1]["machines"]))
+    # ---------- TOP 10 Brewers ----------
+    s, top = bob.call("GET", f"/api/machines/{pid}/top")
+    check("top-lista aluksi tyhjä", s == 200 and top["top"] == [] and top["me"] == "bob", top)
+    check("ulkopuolinen ei näe top-listaa", eve.call("GET", f"/api/machines/{pid}/top")[0] == 403)
+    alice.call("POST", f"/api/machines/{pid}/status", {"status": "brewing", "cups": 8, "device_id": alice.device})
+    wait_rate_limit()
+    alice.call("POST", f"/api/machines/{pid}/status", {"status": "ready", "device_id": alice.device})
+    top = alice.call("GET", f"/api/machines/{pid}/top")[1]["top"]
+    check("tulossa + valmis = yksi pannu", top == [{"username": "alice", "brews": 1}], top)
+    wait_rate_limit()
+    alice.call("POST", f"/api/machines/{pid}/status", {"status": "empty", "device_id": alice.device})
+    wait_rate_limit()
+    alice.call("POST", f"/api/machines/{pid}/status", {"status": "ready", "device_id": alice.device})
+    top = alice.call("GET", f"/api/machines/{pid}/top")[1]["top"]
+    check("20 min jäähy: ei toista pannua heti", top == [{"username": "alice", "brews": 1}], top)
+    wait_rate_limit()
+
     s, m = bob.call("GET", f"/api/machines/{pid}")
     check("jäsen näkee keittimen", s == 200 and m["name"] == "Salainen keitin" and m["org"]["is_manager"] is False)
     s, m = bob.call("POST", f"/api/machines/{pid}/status", {"status": "brewing", "cups": 6, "device_id": bob.device})

@@ -60,6 +60,12 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     user_id     INTEGER REFERENCES users(id) ON DELETE CASCADE,  -- pakollinen yksityisille keittimille
     PRIMARY KEY (endpoint, machine_id)
 );
+CREATE TABLE IF NOT EXISTS brews (           -- TOP 10 Brewers: kirjautuneiden keittämät pannut
+    machine_id  TEXT NOT NULL REFERENCES machines(id) ON DELETE CASCADE,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at  REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_brews_machine ON brews(machine_id, user_id);
 CREATE INDEX IF NOT EXISTS idx_machines_org ON machines(org_id);
 CREATE INDEX IF NOT EXISTS idx_memberships_user ON memberships(user_id);
 """

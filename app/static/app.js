@@ -404,6 +404,7 @@ async function viewMachine(app, id) {
     h("h2", {}, "Ilmoitukset"),
     pushHint() || "",
     followBtn,
+    topBrewers(id),
     h("h2", {}, "Muuta"),
     h("div", { class: "row" },
       h("button", { class: "secondary", onclick: () => go(`/m/${id}/qr`) }, "Näytä QR-koodi"),
@@ -416,6 +417,27 @@ async function viewMachine(app, id) {
         },
       }, "Poista listalta")),
   );
+}
+
+// TOP 10 Brewers: kirjautuneiden keittämät pannut tähän keittimeen
+function topBrewers(id) {
+  const box = h("div", {}, h("h2", {}, "TOP 10 Brewers"));
+  api(`/api/machines/${id}/top`).then(({ top, me }) => {
+    if (top.length) {
+      box.append(h("ol", { class: "card top-list" }, top.map((t, i) =>
+        h("li", { class: t.username === me ? "me" : "" },
+          h("span", { class: "rank" }, `${i + 1}.`),
+          h("span", { class: "who" }, t.username),
+          h("span", { class: "brews" }, t.brews === 1 ? "1 pannu" : `${t.brews} pannua`)))));
+    } else {
+      box.append(h("p", { class: "muted" }, "Listalla ei ole vielä ketään. Keitä pannu ja ilmoita se, niin pääset ensimmäiseksi."));
+    }
+    if (!me) {
+      box.append(h("p", { class: "muted" }, "Pannut lasketaan vain kirjautuneille. ",
+        h("a", { href: "/account" }, "Kirjaudu sisään"), ", niin keittämäsi pannut näkyvät listalla käyttäjätunnuksellasi."));
+    }
+  }).catch(() => box.remove());
+  return box;
 }
 
 // ---------- tunnukset ----------
