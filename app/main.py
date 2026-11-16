@@ -44,6 +44,8 @@ WISH_TTL = 2 * 3600          # toive vanhenee 2 tunnissa
 BREW_COOLDOWN = 16 * 60     # 2 x Moccamasterin ~8 min keittoaika; sama käyttäjä saa samasta keittimestä enintään yhden pannun tässä ajassa
 BREW_CANCEL_WINDOW = 5 * 60  # loppu/vähissä tätä nopeammin pannun jälkeen -> pannu mitätöidään
 TOP_N = 10
+DEFAULT_FULL_POT = 10       # kuppia; keitinkohtainen asetus machines.full_pot_cups
+MAX_CUPS = 999
 RATE_LIMIT_SECONDS = 5       # sama IP ei voi hakata samaa keitintä tätä tiheämmin
 
 Status = Literal["ready", "brewing", "low", "empty", "supplies_low", "supplies_out"]
@@ -126,7 +128,17 @@ def _rate_limit(request: Request, machine_id: str) -> None:
         _last_action.clear()
 
 
-def _machine_json(con, row, mem) -> dict:
+def _can_edit(row, mem, user, request: Request | None) -> bool:
+    """Keittimen asetukset: organisaation keittimessä ylläpitäjät, julkisessa luoja (tunnus tai laite)."""
+    if row["org_id"]:
+        return bool(mem and mem["is_manager"])
+    if user and row["creator_user_id"] is not None and row["creator_user_id"] == user["id"]:
+        return True
+    device = request.headers.get("x-device-id", "") if request else ""
+    return bool(8 <= len(device) <= 64 and row["creator_device_hash"] == security.hash_device(device))
+
+
+def _machine_json(con, row, mem, user=None, request: Request | None = None) -> dict:
     wishes = con.execute(
         "SELECT COUNT(*) FROM wishes WHERE machine_id = ? AND created_at > ?",
         (row["id"], time.time() - WISH_TTL),
@@ -143,6 +155,8 @@ def _machine_json(con, row, mem) -> dict:
         "updated_at": row["updated_at"],
         "wishes": wishes,
         "org": org,
+        "full_pot_cups": row["full_pot_cups"] or DEFAULT_FULL_POT,
+        "can_edit": _can_edit(row, mem, user, request),
     }
 
 
@@ -161,8 +175,12 @@ class NewMachine(BaseModel):
 
 class StatusUpdate(BaseModel):
     status: Status
-    cups: int | None = Field(default=None, ge=1, le=100)
+    cups: int | None = Field(default=None, ge=1, le=MAX_CUPS)
     device_id: str = Field(min_length=8, max_length=64)
+
+
+class MachineSettings(BaseModel):
+    full_pot_cups: int = Field(ge=1, le=MAX_CUPS)
 
 
 class DeviceOnly(BaseModel):
@@ -238,8 +256,19 @@ def create_machine(body: NewMachine, request: Request):
 def get_machine(machine_id: str, request: Request):
     machine_id = _valid_id(machine_id)
     with db.connect() as con:
-        row, mem, _ = _load_authorized(con, machine_id, request)
-        return _machine_json(con, row, mem)
+        row, mem, user = _load_authorized(con, machine_id, request)
+        return _machine_json(con, row, mem, user, request)
+
+
+@app.post("/api/machines/{machine_id}/settings")
+def machine_settings(machine_id: str, body: MachineSettings, request: Request):
+    machine_id = _valid_id(machine_id)
+    with db.connect() as con:
+        row, mem, user = _load_authorized(con, machine_id, request)
+        if not _can_edit(row, mem, user, request):
+            raise HTTPException(403, "Vain keittimen luoja tai ylläpitäjä voi muuttaa asetuksia")
+        con.execute("UPDATE machines SET full_pot_cups = ? WHERE id = ?", (body.full_pot_cups, machine_id))
+        return _machine_json(con, _get_machine(con, machine_id), mem, user, request)
 
 
 @app.post("/api/machines/{machine_id}/status")

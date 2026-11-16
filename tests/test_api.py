@@ -98,6 +98,19 @@ def run():
     check("anonyymi luo julkisen keittimen", s == 201 and pub["org"] is None)
     check("anonyymi lukee julkisen", anon.call("GET", f"/api/machines/{pub['id']}")[0] == 200)
     check("tyhjä nimi 422", anon.call("POST", "/api/machines", {"name": ""})[0] == 422)
+    # ---------- täyden pannun asetus ----------
+    s, m = anon.call("GET", f"/api/machines/{pub['id']}", headers={"X-Device-Id": anon.device})
+    check("täysi pannu oletus 10, luoja saa muokata", m["full_pot_cups"] == 10 and m["can_edit"] is True, m)
+    check("muu laite ei saa muokata", eve.call("GET", f"/api/machines/{pub['id']}", headers={"X-Device-Id": eve.device})[1]["can_edit"] is False)
+    check("muu laite: asetus 403", eve.call("POST", f"/api/machines/{pub['id']}/settings", {"full_pot_cups": 144},
+                                            headers={"X-Device-Id": eve.device})[0] == 403)
+    check("liian iso pannu 422", anon.call("POST", f"/api/machines/{pub['id']}/settings", {"full_pot_cups": 1000},
+                                          headers={"X-Device-Id": anon.device})[0] == 422)
+    s, m = anon.call("POST", f"/api/machines/{pub['id']}/settings", {"full_pot_cups": 144}, headers={"X-Device-Id": anon.device})
+    check("luoja asettaa 144 kuppia", s == 200 and m["full_pot_cups"] == 144, m)
+    check("144 kuppia kelpaa tilaan", anon.call("POST", f"/api/machines/{pub['id']}/status",
+          {"status": "brewing", "cups": 144, "device_id": anon.device})[1]["cups"] == 144)
+    wait_rate_limit()
     check("pelkät välilyönnit 422", anon.call("POST", "/api/machines", {"name": "   "})[0] == 422)
     s, m = anon.call("POST", "/api/machines", {"name": "Keitin\u202e\x00\n  2"})
     check("ohjausmerkit siivotaan nimestä", s == 201 and m["name"] == "Keitin 2", m)
@@ -221,6 +234,9 @@ def run():
     check("16 min jäähy: ei toista pannua heti", top == [{"username": "alice", "brews": 1}], top)
     wait_rate_limit()
 
+    check("jäsen ei saa muuttaa asetuksia", bob.call("POST", f"/api/machines/{pid}/settings", {"full_pot_cups": 20})[0] == 403)
+    s2, m2 = alice.call("POST", f"/api/machines/{pid}/settings", {"full_pot_cups": 20})
+    check("ylläpitäjä muuttaa asetuksia", s2 == 200 and m2["full_pot_cups"] == 20 and m2["can_edit"], m2)
     s, m = bob.call("GET", f"/api/machines/{pid}")
     check("jäsen näkee keittimen", s == 200 and m["name"] == "Salainen keitin" and m["org"]["is_manager"] is False)
     s, m = bob.call("POST", f"/api/machines/{pid}/status", {"status": "brewing", "cups": 6, "device_id": bob.device})

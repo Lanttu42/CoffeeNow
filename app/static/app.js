@@ -58,7 +58,7 @@ function h(tag, props = {}, ...children) {
 
 async function api(path, options = {}) {
   const res = await fetch(path, {
-    headers: { "Content-Type": "application/json", "X-Lang": LANG },
+    headers: { "Content-Type": "application/json", "X-Lang": LANG, "X-Device-Id": deviceId() },
     ...options,
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
@@ -253,7 +253,6 @@ function pushHint() {
 
 // ---------- tilakuvakkeet (samasta originista -> CSP img-src 'self' riittää) ----------
 
-const FULL_POT_CUPS = 10;  // Moccamasterin täysi pannu; "Kahvia tulossa" -oletus
 const FRESH_MINUTES = 30;   // tätä tuoreempi "Kahvia on" = täysi pannu, vanhempi = puolikas
 const minutesSince = (ts) => (ts ? Math.max(0, Math.floor((Date.now() / 1000 - ts) / 60)) : null);
 
@@ -330,7 +329,7 @@ async function viewHome(app) {
       cards.push(c);
       render(c);
       attachSwipe(wrap, card, {
-        left: () => quickStatus(c.id, "brewing", FULL_POT_CUPS).then(() => refresh(c)),
+        left: () => quickStatus(c.id, "brewing", c.data.full_pot_cups).then(() => refresh(c)),
         right: () => doWish(c.id).then(() => refresh(c)),
       });
     }).catch((e) => {
@@ -508,7 +507,7 @@ async function viewMachine(app, id) {
     return;
   }
 
-  const cupsInput = h("input", { type: "number", min: "1", max: "100", value: String(FULL_POT_CUPS), inputmode: "numeric" });
+  const cupsInput = h("input", { type: "number", min: "1", max: "999", value: String(m.full_pot_cups), inputmode: "numeric" });
   const cupsBox = h("div", { class: "card hidden" },
     h("label", {}, t("Montako kuppia tulossa?")), cupsInput,
     h("button", { onclick: () => setStatus("brewing", parseInt(cupsInput.value, 10) || null) }, t("Ilmoita")));
@@ -556,6 +555,7 @@ async function viewMachine(app, id) {
     pushHint() || "",
     followBtn,
     topBrewers(id),
+    m.can_edit ? machineSettings(m) : "",
     h("h2", {}, t("Muuta")),
     h("div", { class: "row" },
       h("button", { class: "secondary", onclick: () => go(`/m/${id}/qr`) }, t("Näytä QR-koodi")),
@@ -568,6 +568,26 @@ async function viewMachine(app, id) {
         },
       }, t("Poista listalta"))),
   );
+}
+
+// Keittimen asetukset (luoja tai organisaation ylläpitäjä)
+function machineSettings(m) {
+  const pot = h("input", { type: "number", min: "1", max: "999", value: String(m.full_pot_cups), inputmode: "numeric", required: true });
+  return h("details", { class: "card" },
+    h("summary", {}, t("Keittimen asetukset")),
+    h("form", {
+      onsubmit: async (ev) => {
+        ev.preventDefault();
+        try {
+          await api(`/api/machines/${m.id}/settings`, { method: "POST", body: { full_pot_cups: parseInt(pot.value, 10) } });
+          toast(t("Asetus tallennettu"));
+          route();
+        } catch (e) { toast(e.message); }
+      },
+    },
+      h("label", {}, t("Täysi pannu (kuppia)")), pot,
+      h("p", { class: "muted" }, t("Tätä käytetään, kun kahvia ilmoitetaan tulevaksi pyyhkäisemällä etusivulla.")),
+      h("button", { type: "submit" }, t("Tallenna"))));
 }
 
 // TOP 10 Brewers: kirjautuneiden keittämät pannut tähän keittimeen

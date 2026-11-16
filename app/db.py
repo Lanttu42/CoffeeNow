@@ -42,7 +42,8 @@ CREATE TABLE IF NOT EXISTS machines (
     created_at  REAL NOT NULL,
     org_id      TEXT REFERENCES orgs(id) ON DELETE CASCADE,  -- NULL = julkinen keitin
     creator_user_id     INTEGER,   -- luoja (jos kirjautunut): vain luoja voi liittää julkisen keittimen organisaatioon
-    creator_device_hash TEXT       -- luojan laite-ID:n hash (sama tarkoitus kirjautumattomalle)
+    creator_device_hash TEXT,      -- luojan laite-ID:n hash (sama tarkoitus kirjautumattomalle)
+    full_pot_cups       INTEGER    -- täyden pannun kuppimäärä (NULL = oletus 10)
 );
 CREATE TABLE IF NOT EXISTS wishes (
     machine_id  TEXT NOT NULL REFERENCES machines(id) ON DELETE CASCADE,
@@ -80,6 +81,7 @@ MIGRATIONS = [
     ("machines", "org_id", "ALTER TABLE machines ADD COLUMN org_id TEXT REFERENCES orgs(id) ON DELETE CASCADE"),
     ("machines", "creator_user_id", "ALTER TABLE machines ADD COLUMN creator_user_id INTEGER"),
     ("machines", "creator_device_hash", "ALTER TABLE machines ADD COLUMN creator_device_hash TEXT"),
+    ("machines", "full_pot_cups", "ALTER TABLE machines ADD COLUMN full_pot_cups INTEGER"),
     ("subscriptions", "lang", "ALTER TABLE subscriptions ADD COLUMN lang TEXT"),
     ("subscriptions", "user_id", "ALTER TABLE subscriptions ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE"),
 ]
