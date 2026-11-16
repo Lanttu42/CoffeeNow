@@ -4,6 +4,7 @@ Keitin on joko
 - julkinen (org_id NULL): kuka tahansa QR-koodin skannaava voi lukea ja päivittää
 - yksityinen (org_id asetettu): vain organisaation jäsenet. Ulkopuolinen ei näe edes nimeä.
 """
+import hashlib
 import io
 import time
 import uuid
@@ -12,13 +13,32 @@ from typing import Literal
 
 import segno
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from pydantic import BaseModel, Field, field_validator
 
-from . import auth, db, orgs, push, security
+from . import auth, db, i18n, orgs, push, security
 
 STATIC = Path(__file__).parent / "static"
+
+# Versio: VERSION näytetään käyttäjälle, BUILD (hash staattisista tiedostoista) muuttuu aina kun frontend muuttuu.
+# Selain vertaa lataamaansa BUILDia palvelimen BUILDiin ja pyytää päivittämään, jos ne eroavat.
+VERSION = (Path(__file__).parent / "VERSION").read_text().strip()
+
+
+def _build_id() -> str:
+    h = hashlib.sha256()
+    for f in sorted(p for p in STATIC.rglob("*") if p.is_file()):
+        h.update(f.relative_to(STATIC).as_posix().encode())
+        h.update(f.read_bytes())
+    return h.hexdigest()[:10]
+
+
+BUILD = _build_id()
+# index.html: tiedostojen osoitteisiin ?v=BUILD (välimuisti ei tarjoa vanhoja) + versiotiedot meta-tageihin
+INDEX_HTML = ((STATIC / "index.html").read_text()
+              .replace("{{VERSION}}", VERSION).replace("{{BUILD}}", BUILD))
 
 WISH_TTL = 2 * 3600          # toive vanhenee 2 tunnissa
 BREW_COOLDOWN = 16 * 60     # 2 x Moccamasterin ~8 min keittoaika; sama käyttäjä saa samasta keittimestä enintään yhden pannun tässä ajassa
@@ -28,7 +48,7 @@ RATE_LIMIT_SECONDS = 5       # sama IP ei voi hakata samaa keitintä tätä tihe
 
 Status = Literal["ready", "brewing", "low", "empty", "supplies_low", "supplies_out"]
 
-STATUS_TEXT = {
+STATUS_TEXT = {  # käännökset: i18n.MESSAGES
     "ready": "Kahvia on!",
     "brewing": "Kahvia tulossa",
     "low": "Kahvi vähissä",
@@ -48,6 +68,15 @@ follow_limiter = security.Limiter(60, 3600, "Liian monta tilausta tästä osoitt
 @app.on_event("startup")
 def _startup() -> None:
     db.init()
+
+
+@app.exception_handler(StarletteHTTPException)
+async def _translated_error(request: Request, exc: StarletteHTTPException):
+    """Virheviestit käyttäjän kielellä. Koodit (login_required, not_member) jätetään ennalleen."""
+    detail = exc.detail
+    if isinstance(detail, str):
+        detail = i18n.tr(detail, i18n.lang_of(request))
+    return JSONResponse({"detail": detail}, status_code=exc.status_code, headers=getattr(exc, "headers", None))
 
 
 # ---------- apufunktiot ----------
@@ -170,7 +199,8 @@ class Unfollow(BaseModel):
 
 @app.get("/api/config")
 def config():
-    return {"vapid_public_key": push.VAPID_PUBLIC_KEY, "push_enabled": push.enabled()}
+    return {"vapid_public_key": push.VAPID_PUBLIC_KEY, "push_enabled": push.enabled(),
+            "version": VERSION, "build": BUILD}
 
 
 @app.post("/api/machines", status_code=201)
@@ -234,9 +264,10 @@ def set_status(machine_id: str, body: StatusUpdate, request: Request, bg: Backgr
             con.execute("DELETE FROM wishes WHERE machine_id = ?", (machine_id,))
         result = _machine_json(con, _get_machine(con, machine_id), mem)
 
-    text = STATUS_TEXT[body.status]
-    if cups:
-        text += f" ({cups} kuppia)"
+    def text(lang: str) -> str:
+        t = i18n.tr(STATUS_TEXT[body.status], lang)
+        return t + i18n.tr(" ({n} kuppia)", lang, n=cups) if cups else t
+
     bg.add_task(push.notify_machine, machine_id, row["name"], text, body.device_id)
     return result
 
@@ -270,7 +301,8 @@ def wish(machine_id: str, body: DeviceOnly, request: Request, bg: BackgroundTask
     n = result["wishes"]
     bg.add_task(
         push.notify_machine, machine_id, row["name"],
-        "Joku toivoo kahvia." if n == 1 else f"{n} ihmistä toivoo kahvia.", body.device_id,
+        lambda lang: i18n.tr("Joku toivoo kahvia." if n == 1 else "{n} ihmistä toivoo kahvia.", lang, n=n),
+        body.device_id,
     )
     return result
 
@@ -285,9 +317,10 @@ def follow(machine_id: str, body: Follow, request: Request):
         follow_limiter.hit(ip)
         s = body.subscription
         con.execute(
-            "INSERT OR REPLACE INTO subscriptions (endpoint, machine_id, device_id, p256dh, auth, created_at, user_id)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (s.endpoint, machine_id, body.device_id, s.keys.p256dh, s.keys.auth, time.time(), user["id"] if user else None),
+            "INSERT OR REPLACE INTO subscriptions (endpoint, machine_id, device_id, p256dh, auth, created_at, user_id, lang)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (s.endpoint, machine_id, body.device_id, s.keys.p256dh, s.keys.auth, time.time(),
+             user["id"] if user else None, i18n.lang_of(request)),
         )
 
 
@@ -334,4 +367,4 @@ def spa(path: str):
     # Kaikki muut polut (/, /new, /m/<uuid>, /account, /org/<uuid>) -> sama yksisivuinen sovellus
     if path.startswith("api/"):
         raise HTTPException(404)
-    return FileResponse(STATIC / "index.html")
+    return HTMLResponse(INDEX_HTML, headers={"Cache-Control": "no-cache"})

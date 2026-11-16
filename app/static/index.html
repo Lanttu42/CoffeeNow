@@ -1,30 +1,29 @@
 <!DOCTYPE html>
-<html lang="fi">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#3b2416">
+  <meta name="app-version" content="{{VERSION}}">
+  <meta name="app-build" content="{{BUILD}}">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="COFFEE!!">
   <title>COFFEE!!</title>
   <link rel="manifest" href="/manifest.json">
   <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/static/icon-180.png">
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/style.css?v={{BUILD}}">
 </head>
 <body>
+  <div id="update-banner" class="update-banner hidden" role="status"></div>
   <header>
     <a href="/" class="logo">COFFEE!!</a>
-    <a href="/account" id="account-link" class="account">Kirjaudu</a>
+    <a href="/account" id="account-link" class="account"></a>
   </header>
   <main id="app"></main>
-  <footer>
-    <p>COFFEE!! on harrastusprojekti, joka tehtiin Clauden (Anthropicin tekoälyavustaja) kanssa alle tunnissa.
-    Se toimii, mutta kaikkea ei ole viimeisen päälle hiottu.</p>
-    <p>Sähköpostia tai oikeaa nimeä ei kysytä. Oma keitinlistasi tallentuu vain tämän laitteen selaimeen.
-    Kirjautuminen käyttää yhtä evästettä, ei seurantaa eikä mainoksia.</p>
-  </footer>
+  <footer id="footer"></footer>
   <div id="toast" class="toast hidden"></div>
-  <script src="/static/app.js" defer></script>
+  <script src="/static/i18n.js?v={{BUILD}}" defer></script>
+  <script src="/static/app.js?v={{BUILD}}" defer></script>
 </body>
 </html>

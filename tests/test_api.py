@@ -30,9 +30,10 @@ class Client:
         self.device = device
         self.opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
 
-    def call(self, method, path, body=None):
+    def call(self, method, path, body=None, headers=None):
         data = json.dumps(body).encode() if body is not None else None
-        req = urllib.request.Request(BASE + path, data=data, method=method, headers={"Content-Type": "application/json"})
+        req = urllib.request.Request(BASE + path, data=data, method=method,
+                                     headers={"Content-Type": "application/json", "Accept-Language": "fi", **(headers or {})})
         try:
             with self.opener.open(req) as r:
                 raw = r.read()
@@ -76,6 +77,23 @@ def run():
     # ---------- julkinen keitin (v1-toiminnallisuus) ----------
     s, cfg = anon.call("GET", "/api/config")
     check("config", s == 200 and cfg["push_enabled"])
+    check("config: versio ja build", cfg["version"] and len(cfg["build"]) == 10, cfg)
+
+    # ---------- kielet ----------
+    bad = "/api/machines/00000000-0000-0000-0000-000000000000"
+    check("virhe englanniksi, jos kieltä ei tunnisteta",
+          anon.call("GET", bad, headers={"Accept-Language": "de-DE,de;q=0.9"})[1]["detail"] == "Coffee maker not found")
+    check("virhe ruotsiksi Accept-Languagesta",
+          anon.call("GET", bad, headers={"Accept-Language": "sv-FI,sv;q=0.9,fi;q=0.8"})[1]["detail"] == "Kaffebryggaren hittades inte")
+    check("q-arvot huomioidaan",
+          anon.call("GET", bad, headers={"Accept-Language": "en;q=0.5,fi;q=0.9"})[1]["detail"] == "Kahvinkeitintä ei löydy")
+    check("X-Lang voittaa selaimen kielen",
+          anon.call("GET", bad, headers={"Accept-Language": "fi", "X-Lang": "en"})[1]["detail"] == "Coffee maker not found")
+    check("koodit (login_required) ennallaan kielestä riippumatta",
+          anon.call("POST", "/api/orgs", {"name": "x"}, headers={"X-Lang": "sv"})[1]["detail"] == "login_required")
+    s, raw = anon.call("GET", "/")
+    html = raw.decode() if isinstance(raw, bytes) else str(raw)
+    check("index.html: build tiedostojen osoitteissa", f"app.js?v={cfg['build']}" in html and "{{" not in html)
     s, pub = anon.call("POST", "/api/machines", {"name": "Julkinen keitin", "device_id": anon.device})
     check("anonyymi luo julkisen keittimen", s == 201 and pub["org"] is None)
     check("anonyymi lukee julkisen", anon.call("GET", f"/api/machines/{pub['id']}")[0] == 200)

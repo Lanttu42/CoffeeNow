@@ -23,6 +23,14 @@ Tehty Clauden kanssa alle tunnissa harrastusprojektina.
 
 Omat keittimet ja anonyymi laite-ID tallennetaan vain puhelimen selaimeen (localStorage).
 
+## Kielet ja versiot
+
+- Suomi, ruotsi ja englanti. Kieli tunnistetaan selaimesta (englanti, jos ei tunnisteta) ja sen voi vaihtaa
+  sivun alalaidasta. Tekstit kirjoitetaan koodiin suomeksi ja käännökset ovat tiedostoissa
+  `app/static/i18n.js` (käyttöliittymä) ja `app/i18n.py` (virheet ja push-ilmoitukset, seuraajan omalla kielellä).
+- Versionumero on tiedostossa `app/VERSION` ja näkyy alalaidassa. Palvelin laskee lisäksi staattisista tiedostoista
+  build-tunnisteen; jos se muuttuu, avoinna oleva sovellus näyttää "Uusi versio on saatavilla" -ilmoituksen.
+
 ## Tunnukset ja organisaatiot (valinnainen)
 
 **Tunnus** luodaan sovelluksessa: käyttäjätunnus + salasana kahteen kertaan. Sähköpostia ei kysytä, joten
@@ -75,7 +83,7 @@ deploy/
 scripts/
   gen_vapid.py   VAPID-avainparin luonti
 tests/
-  test_api.py    API- ja oikeustestit (91 kpl), käynnistää oman palvelimen
+  test_api.py    API- ja oikeustestit (106 kpl), käynnistää oman palvelimen
   ui_flow.py     Käyttöliittymän läpiklikkaus (Playwright)
 ```
 

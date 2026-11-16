@@ -38,18 +38,21 @@ def enabled() -> bool:
     return bool(VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY)
 
 
-def notify_machine(machine_id: str, title: str, body: str, skip_device: str | None = None) -> None:
-    """Lähettää ilmoituksen kaikille keittimen seuraajille (paitsi lähettäjälle itselleen)."""
+def notify_machine(machine_id: str, title: str, body, skip_device: str | None = None) -> None:
+    """Lähettää ilmoituksen kaikille keittimen seuraajille (paitsi lähettäjälle itselleen).
+    body on joko teksti tai funktio kieli -> teksti, jolloin jokainen saa ilmoituksen omalla kielellään."""
     if not enabled():
         log.info("Push ei käytössä (VAPID-avaimet puuttuvat): %s / %s", title, body)
         return
 
-    payload = json.dumps({"title": title, "body": body, "url": f"/m/{machine_id}"})
+    def payload(lang: str) -> str:
+        text = body(lang or "fi") if callable(body) else body
+        return json.dumps({"title": title, "body": text, "url": f"/m/{machine_id}"})
 
     with db.connect() as con:
         # Yksityisellä keittimellä vain nykyiset jäsenet (varmistus siivouksen lisäksi)
         subs = con.execute(
-            "SELECT s.endpoint, s.device_id, s.p256dh, s.auth FROM subscriptions s"
+            "SELECT s.endpoint, s.device_id, s.p256dh, s.auth, s.lang FROM subscriptions s"
             " JOIN machines m ON m.id = s.machine_id"
             " WHERE s.machine_id = ? AND (m.org_id IS NULL OR EXISTS ("
             "   SELECT 1 FROM memberships ms WHERE ms.org_id = m.org_id AND ms.user_id = s.user_id))",
@@ -63,7 +66,7 @@ def notify_machine(machine_id: str, title: str, body: str, skip_device: str | No
         try:
             webpush(
                 subscription_info={"endpoint": s["endpoint"], "keys": {"p256dh": s["p256dh"], "auth": s["auth"]}},
-                data=payload,
+                data=payload(s["lang"]),
                 vapid_private_key=VAPID_PRIVATE_KEY,
                 vapid_claims={"sub": VAPID_SUBJECT},
                 ttl=3600,

@@ -4,7 +4,7 @@ self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
 
 self.addEventListener("push", (event) => {
-  let data = { title: "COFFEE!!", body: "Kahvitilanne muuttui", url: "/" };
+  let data = { title: "COFFEE!!", body: "Coffee status changed", url: "/" };
   try {
     data = { ...data, ...event.data.json() };
   } catch (e) { /* ei payloadia -> oletusteksti */ }

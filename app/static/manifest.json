@@ -1,7 +1,7 @@
 {
   "name": "COFFEE!!",
   "short_name": "COFFEE!!",
-  "description": "Onko kahvia? Kerro muille ja saa ilmoitus, kun kahvia on.",
+  "description": "Is there coffee? Tell your coworkers and get notified when there is.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
