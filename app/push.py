@@ -27,8 +27,12 @@ def notify_machine(machine_id: str, title: str, body: str, skip_device: str | No
     payload = json.dumps({"title": title, "body": body, "url": f"/m/{machine_id}"})
 
     with db.connect() as con:
+        # Yksityisellä keittimellä vain nykyiset jäsenet (varmistus siivouksen lisäksi)
         subs = con.execute(
-            "SELECT endpoint, device_id, p256dh, auth FROM subscriptions WHERE machine_id = ?",
+            "SELECT s.endpoint, s.device_id, s.p256dh, s.auth FROM subscriptions s"
+            " JOIN machines m ON m.id = s.machine_id"
+            " WHERE s.machine_id = ? AND (m.org_id IS NULL OR EXISTS ("
+            "   SELECT 1 FROM memberships ms WHERE ms.org_id = m.org_id AND ms.user_id = s.user_id))",
             (machine_id,),
         ).fetchall()
 

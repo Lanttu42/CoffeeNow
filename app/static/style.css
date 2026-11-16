@@ -16,7 +16,8 @@
 }
 * { box-sizing: border-box; }
 body { margin: 0; min-height: 100vh; background: var(--bg); }
-header { background: var(--brand); padding: calc(env(safe-area-inset-top) + 14px) 20px 14px; }
+header { background: var(--brand); padding: calc(env(safe-area-inset-top) + 14px) 20px 14px; display: flex; justify-content: space-between; align-items: center; }
+.account { color: #fff; text-decoration: none; font-weight: 600; font-size: .95rem; opacity: .9; }
 .logo { color: #fff; font-weight: 800; font-size: 1.4rem; text-decoration: none; letter-spacing: .5px; }
 main { max-width: 520px; margin: 0 auto; padding: 20px 16px 60px; }
 h1 { font-size: 1.5rem; margin: 4px 0 16px; }
@@ -44,7 +45,7 @@ button:disabled { opacity: .5; }
 .grid button { background: var(--card); color: var(--ink); border: 2px solid var(--line); padding: 16px 8px; font-size: 1rem; }
 .grid button.active { border-color: var(--accent); }
 
-input[type=text], input[type=number] {
+input[type=text], input[type=number], input[type=password], select {
   font: inherit; width: 100%; padding: 12px; border-radius: 12px; border: 1px solid var(--line);
   background: var(--card); color: var(--ink); margin: 6px 0 12px;
 }
@@ -52,6 +53,25 @@ input[type=text], input[type=number] {
 .qr img { width: 100%; max-width: 280px; }
 .qr .name { color: #000; font-weight: 800; font-size: 1.2rem; margin-top: 6px; }
 
+.tabs { display: flex; gap: 8px; margin-bottom: 10px; }
+.tabs button { flex: 1; background: transparent; color: var(--ink); border: 1px solid var(--line); }
+.tabs button.active { background: var(--brand); color: #fff; border-color: var(--brand); }
+@media (prefers-color-scheme: dark) { .tabs button.active { background: var(--accent); border-color: var(--accent); } }
+.badge { display: inline-block; font-size: .78rem; font-weight: 700; padding: 3px 9px; border-radius: 999px;
+  background: var(--line); color: var(--ink); text-decoration: none; }
+.invite { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 2.2rem; font-weight: 800; letter-spacing: 3px; margin: 6px 0 12px; }
+.code-input { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 1.4rem !important; letter-spacing: 3px; text-transform: uppercase; text-align: center; }
+label { display: block; font-size: .9rem; font-weight: 600; }
+label.check { display: flex; gap: 10px; align-items: center; font-weight: 500; margin: 4px 0 14px; }
+label.check input { width: 22px; height: 22px; }
+.line { padding: 10px 0; border-bottom: 1px solid var(--line); }
+.line:last-child { border-bottom: 0; }
+button.small { padding: 6px 10px; font-size: .85rem; }
+details summary { cursor: pointer; font-weight: 600; }
+details[open] summary { margin-bottom: 10px; }
+details.danger summary { color: #b3261e; }
+button.danger { background: #b3261e; color: #fff; }
+form.card button[type=submit], details form button[type=submit] { width: 100%; }
 .hint { background: #fff4e0; color: #5a3a10; border-radius: 12px; padding: 12px; font-size: .9rem; margin-bottom: 12px; }
 .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--brand); color: #fff;
   padding: 12px 18px; border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,.25); max-width: 90vw; }

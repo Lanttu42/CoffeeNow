@@ -2,7 +2,8 @@
 
 Yhteisöllinen kahvinkeitinseuranta. QR-koodi keittimen kylkeen, ja kuka tahansa voi kertoa muille, onko kahvia.
 
-- Ei rekisteröitymistä, ei kirjautumista, ei organisaatioita
+- Perusversio: ei rekisteröitymistä, ei kirjautumista – QR koodi ja menoksi
+- Halutessaan: anonyymi tunnus + organisaatio, jonka keittimet näkyvät vain jäsenille
 - Kahvinkeitin tunnistetaan satunnaisella UUID:llä (QR-koodi)
 - Push-ilmoitukset seuraajille (Web Push, PWA): Android suoraan selaimessa, iPhone kun sovellus on lisätty kotivalikkoon
 - **Luottamusmalli on analoginen:** ihmisCPU hoitaa valvonnan. Väärä "Kahvia on!" paljastuu kymmenen askeleen päässä. 😉
@@ -20,12 +21,44 @@ Yhteisöllinen kahvinkeitinseuranta. QR-koodi keittimen kylkeen, ja kuka tahansa
 
 Omat keittimet ja anonyymi laite-ID tallennetaan vain puhelimen selaimeen (localStorage).
 
+## Tunnukset ja organisaatiot (valinnainen)
+
+**Tunnus** luodaan sovelluksessa: käyttäjätunnus + salasana kahteen kertaan. Sähköpostia ei kysytä, joten
+**salasanan palautusta ei ole** – tästä kerrotaan rekisteröityessä. Salasanan voi vaihtaa ja tunnuksen poistaa.
+
+**Organisaatio** on yksityinen keitinporukka. Nimeksi suositellaan lempinimeä, ei yrityksen oikeaa nimeä.
+
+| Rooli | Oikeudet |
+|---|---|
+| Perustaja | Kaikki managerin oikeudet + nimeää managerit, poistaa jäseniä, asetus "kaikki liittyjät managereita", poistaa organisaation (nimi vahvistukseksi) |
+| Manageri | Liittää keittimiä organisaatioon / irrottaa niitä, luo keittimiä suoraan organisaatioon, vaihtaa kutsukoodin |
+| Jäsen | Näkee ja päivittää organisaation keittimiä, seuraa niitä, näkee kutsukoodin, voi erota |
+
+- Liittyminen kutsukoodilla `XXX-XXX` (ei sekoittuvia merkkejä 0/O, 1/I/L)
+- Yksityisen keittimen QR-linkki on sama `/m/<uuid>` – se **ei paljasta keittimen eikä organisaation nimeä**.
+  Kirjautumaton saa kirjautumispyynnön, ulkopuolinen "Ei pääsyä" + kutsukoodikentän.
+- Kun keitin liitetään organisaatioon, ulkopuolisten ilmoitustilaukset ja toiveet poistetaan.
+  Kun jäsen eroaa tai poistetaan, hänen tilauksensa organisaation keittimiin poistetaan.
+- Organisaation poisto poistaa myös sen keittimet (muuten ne muuttuisivat huomaamatta julkisiksi).
+
+### Tietoturva
+
+- Salasanat: `scrypt` (Pythonin vakiokirjasto), suola per käyttäjä, vakioaikainen vertailu
+- Sessio: satunnainen token HttpOnly + Secure + SameSite=Lax -evästeessä, kantaan tallennetaan vain SHA-256-hash, 30 pv
+- Brute force -suojat: kirjautuminen 10 virhettä / tunnus / 10 min, kutsukoodit 10 väärää / käyttäjä / 10 min
+  (IP-kohtaiset rajat väljempiä, koska toimistossa kaikki voivat näkyä samana IP:nä)
+- Kaikki käyttäjän syöte renderöidään `textContent`ina (ei XSS:ää), CSP estää inline-skriptit
+- iPhone: kotivalikkoon lisätty sovellus pitää evästeet erillään Safarista → kirjaudu kerran sovelluksessa
+
 ## Rakenne
 
 ```
 app/
-  main.py        FastAPI: API + SPA:n tarjoilu
-  db.py          SQLite (keittimet, toiveet, push-tilaukset)
+  main.py        FastAPI: keittimet + SPA:n tarjoilu
+  auth.py        Tunnukset: rekisteröinti, kirjautuminen, salasanan vaihto, tilin poisto
+  orgs.py        Organisaatiot, roolit, kutsukoodit, keittimien liitos
+  security.py    scrypt, sessiot, rate limit, kutsukoodit
+  db.py          SQLite + automaattinen päivitys vanhasta kannasta
   push.py        Web Push -lähetys (pywebpush), kuolleiden tilausten siivous
   static/        PWA: index.html, app.js, sw.js, manifest.json, style.css, ikonit
 deploy/
@@ -33,7 +66,12 @@ deploy/
   coffeenow.service  systemd-palvelu kovennuksilla
 scripts/
   gen_vapid.py   VAPID-avainparin luonti
+tests/
+  test_api.py    API- ja oikeustestit (81 kpl), käynnistää oman palvelimen
+  ui_flow.py     Käyttöliittymän läpiklikkaus (Playwright)
 ```
+
+Testit: `python3 tests/test_api.py`
 
 ## Kehitys paikallisesti
 
@@ -45,7 +83,7 @@ uvicorn app.main:app --reload
 # → http://127.0.0.1:8000
 ```
 
-Ilman VAPID-avaimia kaikki muu toimii, ilmoitukset vain kirjataan lokiin. Service worker toimii `localhost`issa myös ilman HTTPS:ää.
+Ilman VAPID-avaimia kaikki muu toimii, ilmoitukset vain kirjataan lokiin. Service worker toimii `localhost`issa myös ilman HTTPS:ää. Kirjautuminen paikallisesti ilman HTTPS:ää vaatii `COOKIE_SECURE=0` (älä koskaan tuotannossa).
 
 ## Asennus Hetzneriin (Ubuntu/Debian)
 
@@ -85,7 +123,8 @@ Päivitys: `cd /opt/coffeenow && sudo -u coffeenow git pull && sudo systemctl re
 
 ## Tiekartta
 
-- [ ] Rekisteröitymällä yksityiset kahvijärjestelmät (organisaatio/SSO, QR toimii vain oman organisaation jäsenille)
+- [x] Tunnukset ja yksityiset organisaatiot kutsukoodilla
+- [ ] Omien keittimien lista synkronoituu tunnukseen (nyt laitekohtainen)
 - [ ] Ilmoitusasetukset per tila (esim. vain "Kahvia on!")
 - [ ] "Kahvia tulossa" → automaattinen "Kahvia on!" keittoajan jälkeen
 - [ ] Tilastot: milloin kahvi loppuu tyypillisesti

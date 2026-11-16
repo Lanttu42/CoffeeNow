@@ -1,4 +1,9 @@
-"""COFFEE!! ☕ – yhteisöllinen kahvinkeitinseuranta. Analoginen luottamusmalli, digitaalinen kello."""
+"""COFFEE!! ☕ – yhteisöllinen kahvinkeitinseuranta. Analoginen luottamusmalli, digitaalinen kello.
+
+Keitin on joko
+- julkinen (org_id NULL): kuka tahansa QR-koodin skannaava voi lukea ja päivittää
+- yksityinen (org_id asetettu): vain organisaation jäsenet. Ulkopuolinen ei näe edes nimeä.
+"""
 import io
 import time
 import uuid
@@ -11,12 +16,12 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import db, push
+from . import auth, db, orgs, push, security
 
 STATIC = Path(__file__).parent / "static"
 
 WISH_TTL = 2 * 3600          # toive vanhenee 2 tunnissa
-RATE_LIMIT_SECONDS = 5       # sama laite/IP ei voi hakata samaa keitintä tätä tiheämmin
+RATE_LIMIT_SECONDS = 5       # sama IP ei voi hakata samaa keitintä tätä tiheämmin
 
 Status = Literal["ready", "brewing", "low", "empty", "supplies_low", "supplies_out"]
 
@@ -30,6 +35,8 @@ STATUS_TEXT = {
 }
 
 app = FastAPI(title="COFFEE!!", docs_url=None, redoc_url=None, openapi_url=None)
+app.include_router(auth.router)
+app.include_router(orgs.router)
 _last_action: dict[tuple[str, str], float] = {}
 
 
@@ -54,8 +61,29 @@ def _get_machine(con, machine_id: str):
     return row
 
 
+def _authorize(con, row, user: dict | None):
+    """Julkinen keitin -> None. Yksityinen -> jäsenyysrivi, tai 401/403 paljastamatta organisaation nimeä."""
+    if not row["org_id"]:
+        return None
+    if not user:
+        raise HTTPException(401, "login_required")
+    mem = con.execute(
+        "SELECT is_manager FROM memberships WHERE org_id = ? AND user_id = ?", (row["org_id"], user["id"])
+    ).fetchone()
+    if not mem:
+        raise HTTPException(403, "not_member")
+    return mem
+
+
+def _load_authorized(con, machine_id: str, request: Request):
+    user = security.current_user(request)
+    row = _get_machine(con, machine_id)
+    mem = _authorize(con, row, user)
+    return row, mem, user
+
+
 def _rate_limit(request: Request, machine_id: str) -> None:
-    key = (request.client.host if request.client else "?", machine_id)
+    key = (security.client_ip(request), machine_id)
     now = time.time()
     if now - _last_action.get(key, 0) < RATE_LIMIT_SECONDS:
         raise HTTPException(429, "Hetkinen, kahvi ei keity nopeammin painamalla 😉")
@@ -64,11 +92,15 @@ def _rate_limit(request: Request, machine_id: str) -> None:
         _last_action.clear()
 
 
-def _machine_json(con, row) -> dict:
+def _machine_json(con, row, mem) -> dict:
     wishes = con.execute(
         "SELECT COUNT(*) FROM wishes WHERE machine_id = ? AND created_at > ?",
         (row["id"], time.time() - WISH_TTL),
     ).fetchone()[0]
+    org = None
+    if row["org_id"]:
+        o = con.execute("SELECT id, name FROM orgs WHERE id = ?", (row["org_id"],)).fetchone()
+        org = {"id": o["id"], "name": o["name"], "is_manager": bool(mem and mem["is_manager"])}
     return {
         "id": row["id"],
         "name": row["name"],
@@ -76,6 +108,7 @@ def _machine_json(con, row) -> dict:
         "cups": row["cups"],
         "updated_at": row["updated_at"],
         "wishes": wishes,
+        "org": org,
     }
 
 
@@ -83,6 +116,7 @@ def _machine_json(con, row) -> dict:
 
 class NewMachine(BaseModel):
     name: str = Field(min_length=1, max_length=60)
+    org_id: str | None = Field(default=None, max_length=40)
 
 
 class StatusUpdate(BaseModel):
@@ -122,30 +156,38 @@ def config():
 
 
 @app.post("/api/machines", status_code=201)
-def create_machine(body: NewMachine):
+def create_machine(body: NewMachine, request: Request):
     machine_id = str(uuid.uuid4())
+    org_id = None
     with db.connect() as con:
+        if body.org_id:  # suoraan organisaatioon: vain manageri
+            user = security.require_user(request)
+            org, mem = orgs._load(con, body.org_id, user)
+            orgs._require_manager(mem)
+            org_id = org["id"]
         con.execute(
-            "INSERT INTO machines (id, name, created_at) VALUES (?, ?, ?)",
-            (machine_id, body.name.strip(), time.time()),
+            "INSERT INTO machines (id, name, created_at, org_id) VALUES (?, ?, ?, ?)",
+            (machine_id, body.name.strip(), time.time(), org_id),
         )
-        return _machine_json(con, _get_machine(con, machine_id))
+        row, mem, _ = _load_authorized(con, machine_id, request)
+        return _machine_json(con, row, mem)
 
 
 @app.get("/api/machines/{machine_id}")
-def get_machine(machine_id: str):
+def get_machine(machine_id: str, request: Request):
     machine_id = _valid_id(machine_id)
     with db.connect() as con:
-        return _machine_json(con, _get_machine(con, machine_id))
+        row, mem, _ = _load_authorized(con, machine_id, request)
+        return _machine_json(con, row, mem)
 
 
 @app.post("/api/machines/{machine_id}/status")
 def set_status(machine_id: str, body: StatusUpdate, request: Request, bg: BackgroundTasks):
     machine_id = _valid_id(machine_id)
-    _rate_limit(request, machine_id)
     cups = body.cups if body.status == "brewing" else None
     with db.connect() as con:
-        row = _get_machine(con, machine_id)
+        row, mem, _ = _load_authorized(con, machine_id, request)
+        _rate_limit(request, machine_id)
         con.execute(
             "UPDATE machines SET status = ?, cups = ?, updated_at = ? WHERE id = ?",
             (body.status, cups, time.time(), machine_id),
@@ -153,7 +195,7 @@ def set_status(machine_id: str, body: StatusUpdate, request: Request, bg: Backgr
         # Kun kahvia on tai on tulossa, toiveet on täytetty -> nollataan
         if body.status in ("ready", "brewing"):
             con.execute("DELETE FROM wishes WHERE machine_id = ?", (machine_id,))
-        result = _machine_json(con, _get_machine(con, machine_id))
+        result = _machine_json(con, _get_machine(con, machine_id), mem)
 
     text = STATUS_TEXT[body.status]
     if cups:
@@ -165,14 +207,14 @@ def set_status(machine_id: str, body: StatusUpdate, request: Request, bg: Backgr
 @app.post("/api/machines/{machine_id}/wish")
 def wish(machine_id: str, body: DeviceOnly, request: Request, bg: BackgroundTasks):
     machine_id = _valid_id(machine_id)
-    _rate_limit(request, machine_id)
     with db.connect() as con:
-        row = _get_machine(con, machine_id)
+        row, mem, _ = _load_authorized(con, machine_id, request)
+        _rate_limit(request, machine_id)
         con.execute(
             "INSERT OR REPLACE INTO wishes (machine_id, device_id, created_at) VALUES (?, ?, ?)",
             (machine_id, body.device_id, time.time()),
         )
-        result = _machine_json(con, row)
+        result = _machine_json(con, row, mem)
 
     n = result["wishes"]
     bg.add_task(
@@ -183,20 +225,21 @@ def wish(machine_id: str, body: DeviceOnly, request: Request, bg: BackgroundTask
 
 
 @app.post("/api/machines/{machine_id}/follow", status_code=204)
-def follow(machine_id: str, body: Follow):
+def follow(machine_id: str, body: Follow, request: Request):
     machine_id = _valid_id(machine_id)
     with db.connect() as con:
-        _get_machine(con, machine_id)
+        _, _, user = _load_authorized(con, machine_id, request)
         s = body.subscription
         con.execute(
-            "INSERT OR REPLACE INTO subscriptions (endpoint, machine_id, device_id, p256dh, auth, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
-            (s.endpoint, machine_id, body.device_id, s.keys.p256dh, s.keys.auth, time.time()),
+            "INSERT OR REPLACE INTO subscriptions (endpoint, machine_id, device_id, p256dh, auth, created_at, user_id)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (s.endpoint, machine_id, body.device_id, s.keys.p256dh, s.keys.auth, time.time(), user["id"] if user else None),
         )
 
 
 @app.post("/api/machines/{machine_id}/unfollow", status_code=204)
 def unfollow(machine_id: str, body: Unfollow):
+    # Ei oikeustarkistusta: endpoint on salaisuus, jonka vain tilauksen omistaja tietää
     machine_id = _valid_id(machine_id)
     with db.connect() as con:
         con.execute(
@@ -208,11 +251,12 @@ def unfollow(machine_id: str, body: Unfollow):
 def qr(machine_id: str, request: Request):
     machine_id = _valid_id(machine_id)
     with db.connect() as con:
-        _get_machine(con, machine_id)
+        _load_authorized(con, machine_id, request)
+    # Linkki sisältää vain keittimen UUID:n, ei organisaatiota
     url = f"{request.base_url}m/{machine_id}"
     buf = io.BytesIO()
     segno.make(url, error="m").save(buf, kind="svg", scale=8, border=2)
-    return Response(buf.getvalue(), media_type="image/svg+xml")
+    return Response(buf.getvalue(), media_type="image/svg+xml", headers={"Cache-Control": "private, no-store"})
 
 
 # ---------- frontend ----------
@@ -233,7 +277,7 @@ app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
 @app.get("/{path:path}")
 def spa(path: str):
-    # Kaikki muut polut (/, /new, /m/<uuid>) -> sama yksisivuinen sovellus
+    # Kaikki muut polut (/, /new, /m/<uuid>, /account, /org/<uuid>) -> sama yksisivuinen sovellus
     if path.startswith("api/"):
         raise HTTPException(404)
     return FileResponse(STATIC / "index.html")
