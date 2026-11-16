@@ -1,0 +1,14 @@
+# Salaisuudet – EI KOSKAAN repoon
+.env
+*.pem
+
+# Data
+*.db
+*.db-journal
+data/
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/

@@ -1,0 +1,29 @@
+# systemd-palvelu. Asennus:
+#   sudo cp deploy/coffeenow.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now coffeenow
+[Unit]
+Description=COFFEE!! kahvinkeitinseuranta
+After=network.target
+
+[Service]
+User=coffeenow
+Group=coffeenow
+WorkingDirectory=/opt/coffeenow
+EnvironmentFile=/opt/coffeenow/.env
+ExecStart=/opt/coffeenow/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --proxy-headers --forwarded-allow-ips 127.0.0.1
+Restart=on-failure
+
+# Kovennukset: palvelu ei pääse kirjoittamaan muualle kuin omaan kansioonsa
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/coffeenow/data
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target
