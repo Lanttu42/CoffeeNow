@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Kahvitarvikkeet loppu"><title>Kahvitarvikkeet loppu</title>
+  <path d="M14,30 L30,39 L30,118 L15,108 Z" fill="#f0a05c" stroke="#111" stroke-width="4.5" stroke-linejoin="round"/>
+  <path d="M30,39 L80,25 L82,104 L30,118 Z" fill="#a0440c" stroke="#111" stroke-width="4.5" stroke-linejoin="round"/>
+  <path d="M14,30 L62,16 L80,25 L30,39 Z" fill="#7c3612" stroke="#111" stroke-width="4.5" stroke-linejoin="round"/>
+  <path d="M26,86 L40,84 L43,78 L54,82 L66,80 L69,75 L80,80 L90,86 L72,120 L44,118 Z" transform="translate(14,-3)" fill="#c8fff6" stroke="#111" stroke-width="4" stroke-linejoin="round"/><path d="M26,86 L40,84 L43,78 L54,82 L66,80 L69,75 L80,80 L90,86 L72,120 L44,118 Z" transform="translate(7,-1.5)" fill="#c8fff6" stroke="#111" stroke-width="4" stroke-linejoin="round"/><path d="M26,86 L40,84 L43,78 L54,82 L66,80 L69,75 L80,80 L90,86 L72,120 L44,118 Z" transform="translate(0,0)" fill="#c8fff6" stroke="#111" stroke-width="4" stroke-linejoin="round"/><g fill="none" stroke="#f23c0c" stroke-width="8" stroke-linecap="round"><path d="M92,58 C100,52 112,40 124,26"/><path d="M100,24 C104,34 110,46 114,60"/></g>
+</svg>

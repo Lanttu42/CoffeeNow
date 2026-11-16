@@ -2,9 +2,10 @@
 // Turvallisuus: kaikki käyttäjän syöte (keittimen nimi) laitetaan DOMiin textContentina, ei koskaan innerHTML:nä.
 "use strict";
 
+// Järjestys = tilapainikkeiden järjestys
 const STATUS = {
-  ready:        "Kahvia on",
   brewing:      "Kahvia tulossa",
+  ready:        "Kahvia on",
   low:          "Kahvi vähissä",
   empty:        "Kahvi loppu",
   supplies_low: "Tarvikkeet vähissä",
@@ -169,68 +170,28 @@ function pushHint() {
   return null;
 }
 
-// ---------- tilakuvakkeet (SVG koodissa: ei ulkoisia tiedostoja, CSP pysyy tiukkana) ----------
+// ---------- tilakuvakkeet (samasta originista -> CSP img-src 'self' riittää) ----------
 
 const FRESH_MINUTES = 30;   // tätä tuoreempi "Kahvia on" = täysi pannu, vanhempi = puolikas
-const SVGNS = "http://www.w3.org/2000/svg";
-
-function sv(tag, attrs = {}, ...children) {
-  const el = document.createElementNS(SVGNS, tag);
-  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
-  el.append(...children);
-  return el;
-}
-
 const minutesSince = (ts) => (ts ? Math.max(0, Math.floor((Date.now() / 1000 - ts) / 60)) : null);
 
-// Pannu: level 0..1 (kahvin määrä), drop = tippa yläpuolella (kahvia tulossa)
-function potIcon(level, drop) {
-  const parts = [];
-  if (level > 0) {
-    const top = 26.4 - level * 15;
-    const w = (y) => 2 * (y - 10) / 18;   // pannun kyljet levenevät alaspäin
-    parts.push(sv("path", { class: "pot-liquid",
-      d: `M${7 - w(top) + 1.6} ${top} H${23 + w(top) - 1.6} L${23.2} 26.6 H${6.8} Z` }));
+// Kuvakkeet piirretty luonnosten pohjalta: /static/icons/<nimi>.svg (scripts/gen_icons.py)
+function iconFile(m) {
+  if (m.status === "ready") {
+    // Tuore "Kahvia on" = täysi pannu, vanhempi = puolikas (vähissä-kuvake)
+    const mins = minutesSince(m.updated_at);
+    return mins !== null && mins < FRESH_MINUTES ? "ready" : "low";
   }
-  parts.push(
-    sv("path", { d: "M7 10 H23 L25 28 H5 Z", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linejoin": "round" }),
-    sv("path", { d: "M23.6 14 H26.5 A2 2 0 0 1 28.5 16 V21 A2 2 0 0 1 26.5 23 H24.6", fill: "none", stroke: "currentColor", "stroke-width": 2 }),
-  );
-  if (drop) parts.push(sv("path", { class: "pot-liquid", d: "M16 1.5 C14.6 3.6 13.4 5 13.4 6.3 A2.6 2.6 0 0 0 18.6 6.3 C18.6 5 17.4 3.6 16 1.5 Z" }));
-  return parts;
+  return m.status in STATUS && m.status !== "unknown" ? m.status : "empty";
 }
 
-// Suodatinpaperi + merkki: "!" (vähissä) tai "×" (loppu)
-function filterIcon(mark) {
-  const parts = [
-    sv("path", { class: "paper", d: "M4 10 H24 L18 28 H10 Z", stroke: "currentColor", "stroke-width": 2, "stroke-linejoin": "round" }),
-    sv("path", { d: "M10 10 L12.6 28 M18 10 L15.4 28", stroke: "currentColor", "stroke-width": 1, opacity: 0.45 }),
-    sv("circle", { class: mark === "!" ? "icon-warn" : "icon-bad", cx: 25, cy: 8, r: 6.5 }),
-  ];
-  if (mark === "!") {
-    parts.push(sv("path", { d: "M25 4.6 V8.6", stroke: "#fff", "stroke-width": 2.2, "stroke-linecap": "round" }),
-               sv("circle", { cx: 25, cy: 11.3, r: 1.2, fill: "#fff" }));
-  } else {
-    parts.push(sv("path", { d: "M22.4 5.4 L27.6 10.6 M27.6 5.4 L22.4 10.6", stroke: "#fff", "stroke-width": 2.2, "stroke-linecap": "round" }));
-  }
-  return parts;
-}
-
-function statusIcon(m) {
-  const mins = minutesSince(m.updated_at);
-  let parts, faded = false;
-  switch (m.status) {
-    case "ready":        parts = potIcon(mins !== null && mins < FRESH_MINUTES ? 0.85 : 0.45); break;
-    case "low":          parts = potIcon(0.45); break;
-    case "brewing":      parts = potIcon(0.45, true); break;
-    case "empty":        parts = potIcon(0); break;
-    case "supplies_low": parts = filterIcon("!"); break;
-    case "supplies_out": parts = filterIcon("x"); break;
-    default:             parts = potIcon(0); faded = true;
-  }
+function statusIcon(m, cls = "") {
   const label = statusText(m);
-  return sv("svg", { class: "status-icon" + (faded ? " faded" : ""), viewBox: "0 0 32 32", width: 36, height: 36, role: "img", "aria-label": label },
-    sv("title", {}, label), ...parts);
+  const known = m.status in STATUS && m.status !== "unknown";
+  return h("img", {
+    src: `/static/icons/${iconFile(m)}.svg`, alt: label, title: label, width: 36, height: 36,
+    class: `status-icon ${cls}${known ? "" : " faded"}`,
+  });
 }
 
 function minutesText(ts) {
@@ -413,7 +374,7 @@ async function viewMachine(app, id) {
     h("button", {
       class: m.status === key ? "active" : "",
       onclick: () => key === "brewing" ? cupsBox.classList.toggle("hidden") : setStatus(key),
-    }, label));
+    }, statusIcon({ status: key, updated_at: Date.now() / 1000 }, "icon-btn"), h("span", {}, label)));
 
   const isFollowing = followed().includes(id);
   const followBtn = h("button", {
@@ -432,7 +393,7 @@ async function viewMachine(app, id) {
     h("h1", {}, m.name),
     m.org ? h("p", {}, h("a", { class: "badge", href: `/org/${m.org.id}` }, m.org.name)) : "",
     h("div", { class: "card" },
-      h("div", { class: "status-big" }, statusText(m)),
+      h("div", { class: "status-big" }, statusIcon(m, "icon-big"), h("span", {}, statusText(m))),
       h("div", { class: "row" },
         h("span", { class: "muted" }, m.updated_at ? `Päivitetty ${ago(m.updated_at)}` : ""),
         m.wishes ? h("span", { class: "wishes" }, `${m.wishes} toivoo kahvia`) : null)),
@@ -681,7 +642,7 @@ async function viewOrg(app, id) {
           class: "secondary small",
           onclick: act(() => post(`/machines/${m.id}/unlink`), "Keitin irrotettu. Se on nyt julkinen."),
         }, "Irrota") : null),
-      h("div", {}, statusText(m))));
+      h("div", { class: "status-line" }, statusIcon(m, "icon-small"), h("span", {}, statusText(m)))));
   }
 
   if (o.is_manager) {
