@@ -7,12 +7,14 @@
   --accent: #c8792b;
   --line: #e6dbcf;
   --radius: 16px;
+  --coffee: #6b3e1f;
+  --paper: #fffaf2;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color: var(--ink);
   background: var(--bg);
 }
 @media (prefers-color-scheme: dark) {
-  :root { --bg: #1a120c; --card: #261a12; --ink: #f3e9df; --muted: #b29d8a; --line: #3a2a1e; }
+  :root { --bg: #1a120c; --card: #261a12; --ink: #f3e9df; --muted: #b29d8a; --line: #3a2a1e; --coffee: #c8792b; --paper: #e9dccd; }
 }
 * { box-sizing: border-box; }
 body { margin: 0; min-height: 100vh; background: var(--bg); }
@@ -32,6 +34,16 @@ a.cardlink .title { font-weight: 700; font-size: 1.1rem; }
 a.cardlink .title::after { content: " ›"; color: var(--accent); }
 a.cardlink:hover, a.cardlink:active { border-color: var(--accent); }
 .card .badge + .status-big { margin-top: 8px; }
+.status-row { display: flex; align-items: center; gap: 10px; }
+.card .status-row a.title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.status-row .mins { flex: none; min-width: 4.2em; text-align: right; color: var(--muted); font-size: .9rem; font-variant-numeric: tabular-nums; }
+.status-icon { flex: none; color: var(--ink); }
+.status-icon.faded { opacity: .35; }
+.pot-liquid { fill: var(--coffee); }
+.paper { fill: var(--paper); }
+.icon-warn { fill: var(--accent); }
+.icon-bad { fill: #b3261e; }
+.status-meta { justify-content: flex-start; margin: 6px 0 12px; }
 .row { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
 
 .status-big { font-size: 1.8rem; font-weight: 800; margin: 6px 0 2px; }

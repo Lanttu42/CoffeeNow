@@ -169,7 +169,82 @@ function pushHint() {
   return null;
 }
 
+// ---------- tilakuvakkeet (SVG koodissa: ei ulkoisia tiedostoja, CSP pysyy tiukkana) ----------
+
+const FRESH_MINUTES = 30;   // tätä tuoreempi "Kahvia on" = täysi pannu, vanhempi = puolikas
+const SVGNS = "http://www.w3.org/2000/svg";
+
+function sv(tag, attrs = {}, ...children) {
+  const el = document.createElementNS(SVGNS, tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  el.append(...children);
+  return el;
+}
+
+const minutesSince = (ts) => (ts ? Math.max(0, Math.floor((Date.now() / 1000 - ts) / 60)) : null);
+
+// Pannu: level 0..1 (kahvin määrä), drop = tippa yläpuolella (kahvia tulossa)
+function potIcon(level, drop) {
+  const parts = [];
+  if (level > 0) {
+    const top = 26.4 - level * 15;
+    const w = (y) => 2 * (y - 10) / 18;   // pannun kyljet levenevät alaspäin
+    parts.push(sv("path", { class: "pot-liquid",
+      d: `M${7 - w(top) + 1.6} ${top} H${23 + w(top) - 1.6} L${23.2} 26.6 H${6.8} Z` }));
+  }
+  parts.push(
+    sv("path", { d: "M7 10 H23 L25 28 H5 Z", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linejoin": "round" }),
+    sv("path", { d: "M23.6 14 H26.5 A2 2 0 0 1 28.5 16 V21 A2 2 0 0 1 26.5 23 H24.6", fill: "none", stroke: "currentColor", "stroke-width": 2 }),
+  );
+  if (drop) parts.push(sv("path", { class: "pot-liquid", d: "M16 1.5 C14.6 3.6 13.4 5 13.4 6.3 A2.6 2.6 0 0 0 18.6 6.3 C18.6 5 17.4 3.6 16 1.5 Z" }));
+  return parts;
+}
+
+// Suodatinpaperi + merkki: "!" (vähissä) tai "×" (loppu)
+function filterIcon(mark) {
+  const parts = [
+    sv("path", { class: "paper", d: "M4 10 H24 L18 28 H10 Z", stroke: "currentColor", "stroke-width": 2, "stroke-linejoin": "round" }),
+    sv("path", { d: "M10 10 L12.6 28 M18 10 L15.4 28", stroke: "currentColor", "stroke-width": 1, opacity: 0.45 }),
+    sv("circle", { class: mark === "!" ? "icon-warn" : "icon-bad", cx: 25, cy: 8, r: 6.5 }),
+  ];
+  if (mark === "!") {
+    parts.push(sv("path", { d: "M25 4.6 V8.6", stroke: "#fff", "stroke-width": 2.2, "stroke-linecap": "round" }),
+               sv("circle", { cx: 25, cy: 11.3, r: 1.2, fill: "#fff" }));
+  } else {
+    parts.push(sv("path", { d: "M22.4 5.4 L27.6 10.6 M27.6 5.4 L22.4 10.6", stroke: "#fff", "stroke-width": 2.2, "stroke-linecap": "round" }));
+  }
+  return parts;
+}
+
+function statusIcon(m) {
+  const mins = minutesSince(m.updated_at);
+  let parts, faded = false;
+  switch (m.status) {
+    case "ready":        parts = potIcon(mins !== null && mins < FRESH_MINUTES ? 0.85 : 0.45); break;
+    case "low":          parts = potIcon(0.45); break;
+    case "brewing":      parts = potIcon(0.45, true); break;
+    case "empty":        parts = potIcon(0); break;
+    case "supplies_low": parts = filterIcon("!"); break;
+    case "supplies_out": parts = filterIcon("x"); break;
+    default:             parts = potIcon(0); faded = true;
+  }
+  const label = statusText(m);
+  return sv("svg", { class: "status-icon" + (faded ? " faded" : ""), viewBox: "0 0 32 32", width: 36, height: 36, role: "img", "aria-label": label },
+    sv("title", {}, label), ...parts);
+}
+
+function minutesText(ts) {
+  const min = minutesSince(ts);
+  if (min === null) return "";
+  if (min < 1) return "nyt";
+  if (min < 60) return `${min} min`;
+  if (min < 24 * 60) return `${Math.floor(min / 60)} h ${min % 60} min`;
+  return "yli vrk";
+}
+
 // ---------- näkymät ----------
+
+let homeTimer = null;
 
 async function viewHome(app) {
   const local = myMachines();
@@ -183,20 +258,29 @@ async function viewHome(app) {
       h("p", { class: "muted" }, "Skannaa keittimen QR-koodi puhelimen kameralla tai lisää uusi keitin.")));
   }
 
+  const cards = [];
+  const render = (c) => c.card.replaceChildren(
+    h("div", { class: "status-row" },
+      h("a", { class: "title", href: `/m/${c.id}`, title: c.data.name }, c.data.name),
+      statusIcon(c.data),
+      h("span", { class: "mins" }, minutesText(c.data.updated_at))),
+    h("div", { class: "row status-meta" },
+      h("span", { class: "muted" }, statusText(c.data)),
+      c.data.org ? h("span", { class: "badge" }, c.data.org.name) : null,
+      c.data.wishes ? h("span", { class: "wishes" }, `${c.data.wishes} toivoo kahvia`) : null),
+    h("button", { class: "wish", onclick: () => doWish(c.id).then(() => route()) }, "Olispa kahvia!"),
+  );
+
   for (const m of machines) {
-    const card = h("div", { class: "card" }, h("a", { class: "title", href: `/m/${m.id}` }, m.name), h("p", { class: "muted" }, "Haetaan…"));
+    const card = h("div", { class: "card" },
+      h("div", { class: "status-row" }, h("a", { class: "title", href: `/m/${m.id}` }, m.name)),
+      h("p", { class: "muted" }, "Haetaan…"));
     app.append(card);
+    const c = { id: m.id, card, data: null };
     api(`/api/machines/${m.id}`).then((data) => {
-      card.replaceChildren(
-        h("a", { class: "title", href: `/m/${m.id}` }, data.name),
-        data.org ? h("span", { class: "badge" }, data.org.name) : null,
-        h("div", { class: "status-big" }, statusText(data)),
-        h("div", { class: "row" },
-          h("span", { class: "muted" }, ago(data.updated_at)),
-          data.wishes ? h("span", { class: "wishes" }, `${data.wishes} toivoo kahvia`) : null),
-        h("p", {}),
-        h("button", { class: "wish", onclick: () => doWish(m.id).then(() => route()) }, "Olispa kahvia!"),
-      );
+      c.data = data;
+      cards.push(c);
+      render(c);
     }).catch((e) => {
       const p = card.querySelector("p");
       if (e.status === 401) {
@@ -213,6 +297,14 @@ async function viewHome(app) {
   }
 
   app.append(h("p", {}), h("button", { class: "secondary", onclick: () => go("/new") }, "Lisää uusi kahvinkeitin"));
+
+  // Päivitetään tilat ja minuutit minuutin välein, kun etusivu on auki
+  homeTimer = setInterval(() => {
+    if (document.hidden) return;
+    for (const c of cards) {
+      api(`/api/machines/${c.id}`).then((data) => { c.data = data; render(c); }).catch(() => render(c));
+    }
+  }, 60000);
 }
 
 async function doWish(id) {
@@ -670,6 +762,8 @@ async function viewOrg(app, id) {
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 
 async function route() {
+  clearInterval(homeTimer);
+  homeTimer = null;
   const app = document.getElementById("app");
   app.replaceChildren();
   const p = location.pathname;
