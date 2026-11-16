@@ -21,7 +21,7 @@ from . import auth, db, orgs, push, security
 STATIC = Path(__file__).parent / "static"
 
 WISH_TTL = 2 * 3600          # toive vanhenee 2 tunnissa
-BREW_COOLDOWN = 20 * 60     # sama käyttäjä saa samasta keittimestä enintään yhden pannun tässä ajassa
+BREW_COOLDOWN = 16 * 60     # 2 x Moccamasterin ~8 min keittoaika; sama käyttäjä saa samasta keittimestä enintään yhden pannun tässä ajassa
 BREW_CANCEL_WINDOW = 5 * 60  # loppu/vähissä tätä nopeammin pannun jälkeen -> pannu mitätöidään
 TOP_N = 10
 RATE_LIMIT_SECONDS = 5       # sama IP ei voi hakata samaa keitintä tätä tiheämmin

@@ -186,7 +186,7 @@ def run():
     wait_rate_limit()
     alice.call("POST", f"/api/machines/{pid}/status", {"status": "ready", "device_id": alice.device})
     top = alice.call("GET", f"/api/machines/{pid}/top")[1]["top"]
-    check("20 min jäähy: ei toista pannua heti", top == [{"username": "alice", "brews": 1}], top)
+    check("16 min jäähy: ei toista pannua heti", top == [{"username": "alice", "brews": 1}], top)
     wait_rate_limit()
 
     s, m = bob.call("GET", f"/api/machines/{pid}")
