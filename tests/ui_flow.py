@@ -78,8 +78,8 @@ with sync_playwright() as p:
     alice.goto(BASE + "/account")
     alice.click("a.title >> text=Kofeiinikopla")
     alice.wait_for_selector("text=Jäsenet (2)")
-    alice.click("text=Tee manageriksi")
-    alice.wait_for_selector("text=Poista manageri")
+    alice.click("text=Tee ylläpitäjäksi")
+    alice.wait_for_selector("text=Poista ylläpito-oikeus")
     shot(alice, "a4_members", full=True)
 
     # --- Bob: etusivu ---

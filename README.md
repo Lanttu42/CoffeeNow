@@ -1,12 +1,14 @@
-# COFFEE!! ☕
+# COFFEE!!
 
 Yhteisöllinen kahvinkeitinseuranta. QR-koodi keittimen kylkeen, ja kuka tahansa voi kertoa muille, onko kahvia.
 
-- Perusversio: ei rekisteröitymistä, ei kirjautumista – QR koodi ja menoksi
+- Perusversio: ei rekisteröitymistä eikä kirjautumista, pelkkä QR-koodi riittää
 - Halutessaan: anonyymi tunnus + organisaatio, jonka keittimet näkyvät vain jäsenille
 - Kahvinkeitin tunnistetaan satunnaisella UUID:llä (QR-koodi)
 - Push-ilmoitukset seuraajille (Web Push, PWA): Android suoraan selaimessa, iPhone kun sovellus on lisätty kotivalikkoon
-- **Luottamusmalli on analoginen:** ihmisCPU hoitaa valvonnan. Väärä "Kahvia on!" paljastuu kymmenen askeleen päässä. 😉
+- Tiloja ei varmisteta mitenkään: väärä "Kahvia on" paljastuu viimeistään keittimellä.
+
+Tehty Clauden kanssa alle tunnissa harrastusprojektina.
 
 ## Ominaisuudet
 
@@ -15,7 +17,7 @@ Yhteisöllinen kahvinkeitinseuranta. QR-koodi keittimen kylkeen, ja kuka tahansa
 | Lisää uusi kahvinkeitin | Nimi → UUID → tulostettava QR-koodi |
 | Ensimmäinen skannaus | "Lisätäänkö tämä kahvinkeitin omiin kahvinkeittimiisi?" |
 | Seuraavat skannaukset | Tilan päivitys suoraan |
-| Tilat | ☕ Kahvia on · ⏳ Kahvia tulossa (kupit + aika) · 🫗 Vähissä · 🚫 Loppu · ⚠️ Tarvikkeet vähissä · 🆘 Tarvikkeet loppu |
+| Tilat | Kahvia on · Kahvia tulossa (kupit + aika) · Vähissä · Loppu · Tarvikkeet vähissä · Tarvikkeet loppu |
 | Olispa kahvia! | Kahvitoive, näkyy laskurina ja menee seuraajille ilmoituksena. Nollautuu kun kahvia on/tulossa, vanhenee 2 h:ssa |
 | Seuraa | Push-ilmoitukset keittimen tilamuutoksista |
 
@@ -30,13 +32,15 @@ Omat keittimet ja anonyymi laite-ID tallennetaan vain puhelimen selaimeen (local
 
 | Rooli | Oikeudet |
 |---|---|
-| Perustaja | Kaikki managerin oikeudet + nimeää managerit, poistaa jäseniä, asetus "kaikki liittyjät managereita", poistaa organisaation (nimi vahvistukseksi) |
-| Manageri | Liittää keittimiä organisaatioon / irrottaa niitä, luo keittimiä suoraan organisaatioon, vaihtaa kutsukoodin |
+| Perustaja | Kaikki ylläpitäjän oikeudet + nimeää ylläpitäjät, poistaa jäseniä, asetus "kaikki liittyjät ylläpitäjiä", poistaa organisaation (nimi vahvistukseksi) |
+| Ylläpitäjä | Liittää keittimiä organisaatioon / irrottaa niitä, luo keittimiä suoraan organisaatioon, vaihtaa kutsukoodin |
 | Jäsen | Näkee ja päivittää organisaation keittimiä, seuraa niitä, näkee kutsukoodin, voi erota |
 
 - Liittyminen kutsukoodilla `XXX-XXX` (ei sekoittuvia merkkejä 0/O, 1/I/L)
 - Yksityisen keittimen QR-linkki on sama `/m/<uuid>` – se **ei paljasta keittimen eikä organisaation nimeä**.
   Kirjautumaton saa kirjautumispyynnön, ulkopuolinen "Ei pääsyä" + kutsukoodikentän.
+- Julkisen keittimen voi liittää organisaatioon vain sen luoja (sama tunnus tai sama laite), jotta kukaan ei voi
+  kaapata toimiston yhteistä keitintä omaan porukkaansa pelkän QR-koodin perusteella.
 - Kun keitin liitetään organisaatioon, ulkopuolisten ilmoitustilaukset ja toiveet poistetaan.
   Kun jäsen eroaa tai poistetaan, hänen tilauksensa organisaation keittimiin poistetaan.
 - Organisaation poisto poistaa myös sen keittimet (muuten ne muuttuisivat huomaamatta julkisiksi).
@@ -48,6 +52,10 @@ Omat keittimet ja anonyymi laite-ID tallennetaan vain puhelimen selaimeen (local
 - Brute force -suojat: kirjautuminen 10 virhettä / tunnus / 10 min, kutsukoodit 10 väärää / käyttäjä / 10 min
   (IP-kohtaiset rajat väljempiä, koska toimistossa kaikki voivat näkyä samana IP:nä)
 - Kaikki käyttäjän syöte renderöidään `textContent`ina (ei XSS:ää), CSP estää inline-skriptit
+- Nimistä poistetaan ohjaus- ja muotoilumerkit (rivinvaihdot, RTL-ohitus, näkymättömät merkit)
+- Push-tilauksen osoitteeksi kelpaavat vain selainten push-palvelut (Google, Mozilla, Apple, Microsoft), jotta
+  palvelinta ei voi käyttää lähettämään pyyntöjä mihin tahansa
+- IP-kohtaiset rajat keittimien ja organisaatioiden luonnille sekä ilmoitustilauksille
 - iPhone: kotivalikkoon lisätty sovellus pitää evästeet erillään Safarista → kirjaudu kerran sovelluksessa
 
 ## Rakenne
@@ -67,7 +75,7 @@ deploy/
 scripts/
   gen_vapid.py   VAPID-avainparin luonti
 tests/
-  test_api.py    API- ja oikeustestit (81 kpl), käynnistää oman palvelimen
+  test_api.py    API- ja oikeustestit (91 kpl), käynnistää oman palvelimen
   ui_flow.py     Käyttöliittymän läpiklikkaus (Playwright)
 ```
 

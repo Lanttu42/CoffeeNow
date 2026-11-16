@@ -40,7 +40,9 @@ CREATE TABLE IF NOT EXISTS machines (
     cups        INTEGER,
     updated_at  REAL,
     created_at  REAL NOT NULL,
-    org_id      TEXT REFERENCES orgs(id) ON DELETE CASCADE   -- NULL = julkinen keitin
+    org_id      TEXT REFERENCES orgs(id) ON DELETE CASCADE,  -- NULL = julkinen keitin
+    creator_user_id     INTEGER,   -- luoja (jos kirjautunut): vain luoja voi liittää julkisen keittimen organisaatioon
+    creator_device_hash TEXT       -- luojan laite-ID:n hash (sama tarkoitus kirjautumattomalle)
 );
 CREATE TABLE IF NOT EXISTS wishes (
     machine_id  TEXT NOT NULL REFERENCES machines(id) ON DELETE CASCADE,
@@ -65,6 +67,8 @@ CREATE INDEX IF NOT EXISTS idx_memberships_user ON memberships(user_id);
 # Vanhan (v1) kannan päivitys: lisätään puuttuvat sarakkeet
 MIGRATIONS = [
     ("machines", "org_id", "ALTER TABLE machines ADD COLUMN org_id TEXT REFERENCES orgs(id) ON DELETE CASCADE"),
+    ("machines", "creator_user_id", "ALTER TABLE machines ADD COLUMN creator_user_id INTEGER"),
+    ("machines", "creator_device_hash", "ALTER TABLE machines ADD COLUMN creator_device_hash TEXT"),
     ("subscriptions", "user_id", "ALTER TABLE subscriptions ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE"),
 ]
 

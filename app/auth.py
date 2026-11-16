@@ -13,8 +13,8 @@ USERNAME_RE = re.compile(r"^[A-Za-z0-9ÅÄÖåäö_.-]{3,32}$")
 MIN_PASSWORD = 10
 
 # Toimistossa kaikki voivat näkyä samana IP:nä (NAT) -> IP-rajat väljempiä kuin tunnuskohtaiset
-login_user_limiter = security.Limiter(10, 600, "Liikaa kirjautumisyrityksiä. Odota 10 minuuttia ☕")
-login_ip_limiter = security.Limiter(50, 600, "Liikaa kirjautumisyrityksiä. Odota 10 minuuttia ☕")
+login_user_limiter = security.Limiter(10, 600, "Liikaa kirjautumisyrityksiä. Odota 10 minuuttia.")
+login_ip_limiter = security.Limiter(50, 600, "Liikaa kirjautumisyrityksiä. Odota 10 minuuttia.")
 register_limiter = security.Limiter(30, 3600, "Liikaa uusia tunnuksia tästä osoitteesta. Yritä myöhemmin.")
 
 
@@ -129,9 +129,12 @@ def change_password(body: ChangePassword, request: Request, user: dict = Depends
 
 @router.post("/delete", status_code=204)
 def delete_account(body: PasswordOnly, request: Request, response: Response, user: dict = Depends(security.require_user)):
+    ip, ukey = security.client_ip(request), f"u:{user['username'].lower()}"
+    _login_check(ip, ukey)
     with db.connect() as con:
         row = con.execute("SELECT pw_hash FROM users WHERE id = ?", (user["id"],)).fetchone()
         if not security.verify_password(body.password, row["pw_hash"]):
+            _login_fail(ip, ukey)
             raise HTTPException(401, "Väärä salasana")
         if con.execute("SELECT 1 FROM orgs WHERE founder_id = ?", (user["id"],)).fetchone():
             raise HTTPException(409, "Poista ensin perustamasi organisaatiot")

@@ -1,15 +1,15 @@
-// COFFEE!! ☕ frontend – ei frameworkkeja, ei ulkoisia kirjastoja.
+// COFFEE!! frontend – ei frameworkkeja, ei ulkoisia kirjastoja.
 // Turvallisuus: kaikki käyttäjän syöte (keittimen nimi) laitetaan DOMiin textContentina, ei koskaan innerHTML:nä.
 "use strict";
 
 const STATUS = {
-  ready:        "☕ Kahvia on!",
-  brewing:      "⏳ Kahvia tulossa",
-  low:          "🫗 Kahvi on vähissä",
-  empty:        "🚫 Kahvi loppu",
-  supplies_low: "⚠️ Kahvitarvikkeet vähissä",
-  supplies_out: "🆘 Kahvitarvikkeet loppu",
-  unknown:      "❔ Ei tietoa vielä",
+  ready:        "Kahvia on",
+  brewing:      "Kahvia tulossa",
+  low:          "Kahvi vähissä",
+  empty:        "Kahvi loppu",
+  supplies_low: "Tarvikkeet vähissä",
+  supplies_out: "Tarvikkeet loppu",
+  unknown:      "Ei tietoa vielä",
 };
 
 // ---------- paikallinen tila (vain tällä laitteella) ----------
@@ -77,7 +77,7 @@ let ME = { user: null, orgs: [] };
 async function loadMe() {
   try { ME = await api("/api/auth/me"); } catch { ME = { user: null, orgs: [] }; }
   const link = document.getElementById("account-link");
-  link.textContent = ME.user ? `👤 ${ME.user.username}` : "👤 Kirjaudu";
+  link.textContent = ME.user ? ME.user.username : "Kirjaudu";
 }
 
 const managedOrgs = () => ME.orgs.filter((o) => o.is_manager);
@@ -158,7 +158,7 @@ async function unfollow(machineId) {
 function pushHint() {
   if (isIOS() && !isStandalone()) {
     return h("div", { class: "hint" },
-      "📲 iPhonella ilmoitukset toimivat, kun lisäät sovelluksen kotivalikkoon: ",
+      "iPhonella ilmoitukset toimivat vain, jos lisäät sivun kotivalikkoon: ",
       h("b", {}, "Safari → Jaa → Lisää Koti-valikkoon"), ".");
   }
   if (!("PushManager" in window)) {
@@ -188,16 +188,16 @@ async function viewHome(app) {
         h("div", { class: "status-big" }, statusText(data)),
         h("div", { class: "row" },
           h("span", { class: "muted" }, ago(data.updated_at)),
-          data.wishes ? h("span", { class: "wishes" }, `🙏 ${data.wishes}`) : null),
+          data.wishes ? h("span", { class: "wishes" }, `${data.wishes} toivoo kahvia`) : null),
         h("p", {}),
-        h("button", { class: "wish", onclick: () => doWish(m.id).then(() => route()) }, "Olispa kahvia! ☕"),
+        h("button", { class: "wish", onclick: () => doWish(m.id).then(() => route()) }, "Olispa kahvia!"),
       );
     }).catch((e) => {
       const p = card.querySelector("p");
       if (e.status === 401) {
-        p.replaceChildren("🔒 Yksityinen keitin – ", h("a", { href: "/account" }, "kirjaudu sisään"));
+        p.replaceChildren("Yksityinen keitin – ", h("a", { href: "/account" }, "kirjaudu sisään"), ".");
       } else if (e.status === 403) {
-        p.textContent = "🔒 Sinulla ei ole enää pääsyä tähän keittimeen.";
+        p.textContent = "Sinulla ei ole enää pääsyä tähän keittimeen.";
       } else if (e.status === 404) {
         p.replaceChildren("Keitin on poistettu. ",
           h("button", { class: "secondary", onclick: () => { removeMine(m.id); route(); } }, "Poista listalta"));
@@ -207,13 +207,13 @@ async function viewHome(app) {
     });
   }
 
-  app.append(h("p", {}), h("button", { class: "secondary", onclick: () => go("/new") }, "➕ Lisää uusi kahvinkeitin"));
+  app.append(h("p", {}), h("button", { class: "secondary", onclick: () => go("/new") }, "Lisää uusi kahvinkeitin"));
 }
 
 async function doWish(id) {
   try {
     const m = await api(`/api/machines/${id}/wish`, { method: "POST", body: { device_id: deviceId() } });
-    toast(`Toive lähetetty! ${m.wishes} kaipaa kahvia 🙏`);
+    toast(m.wishes > 1 ? `Toive lähetetty. Kahvia toivoo nyt ${m.wishes} ihmistä.` : "Toive lähetetty.");
   } catch (e) { toast(e.message); }
 }
 
@@ -223,8 +223,8 @@ function viewNew(app) {
   // Managerille: valinta julkinen / oma organisaatio
   const wanted = new URLSearchParams(location.search).get("org");
   const orgSelect = managedOrgs().length ? h("select", {},
-    h("option", { value: "" }, "🌍 Julkinen (kuka tahansa QR:n skannaava)"),
-    managedOrgs().map((o) => h("option", { value: o.id, selected: o.id === wanted }, `🔒 ${o.name}`))) : null;
+    h("option", { value: "" }, "Julkinen – kuka tahansa QR-koodin skannaava"),
+    managedOrgs().map((o) => h("option", { value: o.id, selected: o.id === wanted }, o.name))) : null;
 
   const form = h("form", {
     onsubmit: async (ev) => {
@@ -232,7 +232,7 @@ function viewNew(app) {
       const name = input.value.trim();
       if (!name) return;
       try {
-        const body = { name };
+        const body = { name, device_id: deviceId() };
         if (orgSelect && orgSelect.value) body.org_id = orgSelect.value;
         const m = await api("/api/machines", { method: "POST", body });
         addMine(m);
@@ -250,16 +250,18 @@ function viewNew(app) {
 async function viewQr(app, id) {
   const m = await api(`/api/machines/${id}`);
   app.append(
-    h("h1", { class: "no-print" }, "QR-koodi valmis! 🎉"),
-    h("p", { class: "muted no-print" }, "Tulosta ja kiinnitä kahvinkeittimeen. Koodin skannaamalla kuka tahansa voi päivittää tilan."),
+    h("h1", { class: "no-print" }, "QR-koodi on valmis"),
+    h("p", { class: "muted no-print" }, m.org
+      ? "Tulosta koodi ja teippaa se keittimen kylkeen. Tilanteen voivat päivittää vain organisaation jäsenet."
+      : "Tulosta koodi ja teippaa se keittimen kylkeen. Kuka tahansa koodin skannaava voi päivittää tilanteen."),
     h("div", { class: "qr" },
       h("img", { src: `/api/machines/${id}/qr.svg`, alt: "QR-koodi" }),
-      h("div", { class: "name" }, `☕ ${m.name}`),
-      h("div", { class: "muted" }, "Skannaa ja kerro kahvitilanne!")),
+      h("div", { class: "name" }, m.name),
+      h("div", { class: "muted" }, "Skannaa ja kerro, onko kahvia")),
     h("p", { class: "no-print" }),
     h("div", { class: "row no-print" },
-      h("button", { onclick: () => window.print() }, "🖨️ Tulosta"),
-      h("button", { class: "secondary", onclick: () => go(`/m/${id}`) }, "Siirry keittimeen →")),
+      h("button", { onclick: () => window.print() }, "Tulosta"),
+      h("button", { class: "secondary", onclick: () => go(`/m/${id}`) }, "Avaa keitin")),
   );
 }
 
@@ -270,13 +272,13 @@ async function viewMachine(app, id) {
     // Yksityinen keitin: nimeä tai organisaatiota ei näytetä ennen kuin oikeus on tarkistettu
     if (e.status === 401) {
       app.append(
-        h("h1", {}, "🔒 Yksityinen kahvinkeitin"),
-        h("p", {}, "Tämä kahvinkeitin kuuluu organisaatiolle. Kirjaudu sisään, niin tarkistetaan kuulutko siihen."),
+        h("h1", {}, "Yksityinen kahvinkeitin"),
+        h("p", {}, "Tämä keitin kuuluu organisaatiolle. Kirjaudu sisään, niin katsotaan, kuulutko siihen."),
         authForms(() => route()));
     } else if (e.status === 403) {
       app.append(
-        h("h1", {}, "🔒 Ei pääsyä"),
-        h("p", {}, "Et kuulu tämän kahvinkeittimen organisaatioon. Jos sait kutsukoodin, liity tästä:"),
+        h("h1", {}, "Ei pääsyä"),
+        h("p", {}, "Et kuulu organisaatioon, jolle tämä keitin kuuluu. Jos sait kutsukoodin, voit liittyä tässä:"),
         joinForm(() => route()));
     } else {
       app.append(h("h1", {}, "Hups!"), h("p", {}, e.message));
@@ -289,9 +291,9 @@ async function viewMachine(app, id) {
     app.append(
       h("h1", {}, m.name),
       h("div", { class: "card" },
-        h("p", {}, "Lisätäänkö tämä kahvinkeitin omiin kahvinkeittimiisi?"),
+        h("p", {}, "Lisätäänkö tämä keitin omalle listallesi?"),
         h("div", { class: "row" },
-          h("button", { onclick: () => { addMine(m); route(); } }, "Kyllä, lisää ☕"),
+          h("button", { onclick: () => { addMine(m); route(); } }, "Kyllä, lisää"),
           h("button", { class: "secondary", onclick: () => go("/") }, "Ei kiitos"))),
     );
     return;
@@ -300,12 +302,12 @@ async function viewMachine(app, id) {
   const cupsInput = h("input", { type: "number", min: "1", max: "100", value: "10", inputmode: "numeric" });
   const cupsBox = h("div", { class: "card hidden" },
     h("label", {}, "Montako kuppia tulossa?"), cupsInput,
-    h("button", { onclick: () => setStatus("brewing", parseInt(cupsInput.value, 10) || null) }, "⏳ Ilmoita: kahvia tulossa"));
+    h("button", { onclick: () => setStatus("brewing", parseInt(cupsInput.value, 10) || null) }, "Ilmoita"));
 
   async function setStatus(status, cups = null) {
     try {
       await api(`/api/machines/${id}/status`, { method: "POST", body: { status, cups, device_id: deviceId() } });
-      toast("Kiitos! Tieto välitetty seuraajille 📣");
+      toast("Kiitos! Seuraajat saavat ilmoituksen.");
       route();
     } catch (e) { toast(e.message); }
   }
@@ -322,22 +324,22 @@ async function viewMachine(app, id) {
     onclick: async () => {
       followBtn.disabled = true;
       try {
-        if (isFollowing) { await unfollow(id); toast("Ilmoitukset pois päältä 🔕"); }
-        else { await follow(id); toast("Ilmoitukset päällä! 🔔"); }
+        if (isFollowing) { await unfollow(id); toast("Ilmoitukset pois päältä"); }
+        else { await follow(id); toast("Ilmoitukset päällä"); }
         route();
       } catch (e) { toast(e.message); followBtn.disabled = false; }
     },
-  }, isFollowing ? "🔕 Lopeta seuraaminen" : "🔔 Seuraa (ilmoitukset)");
+  }, isFollowing ? "Lopeta seuraaminen" : "Seuraa ja saa ilmoitukset");
 
   app.append(
     h("h1", {}, m.name),
-    m.org ? h("p", {}, h("a", { class: "badge", href: `/org/${m.org.id}` }, `🔒 ${m.org.name}`)) : "",
+    m.org ? h("p", {}, h("a", { class: "badge", href: `/org/${m.org.id}` }, m.org.name)) : "",
     h("div", { class: "card" },
       h("div", { class: "status-big" }, statusText(m)),
       h("div", { class: "row" },
         h("span", { class: "muted" }, m.updated_at ? `Päivitetty ${ago(m.updated_at)}` : ""),
-        m.wishes ? h("span", { class: "wishes" }, `🙏 ${m.wishes} kaipaa kahvia`) : null)),
-    h("button", { class: "wish", onclick: () => doWish(id).then(() => route()) }, "Olispa kahvia! ☕"),
+        m.wishes ? h("span", { class: "wishes" }, `${m.wishes} toivoo kahvia`) : null)),
+    h("button", { class: "wish", onclick: () => doWish(id).then(() => route()) }, "Olispa kahvia!"),
     h("h2", {}, "Päivitä tilanne"),
     h("div", { class: "grid" }, buttons),
     cupsBox,
@@ -346,7 +348,7 @@ async function viewMachine(app, id) {
     followBtn,
     h("h2", {}, "Muuta"),
     h("div", { class: "row" },
-      h("button", { class: "secondary", onclick: () => go(`/m/${id}/qr`) }, "🔳 Näytä QR-koodi"),
+      h("button", { class: "secondary", onclick: () => go(`/m/${id}/qr`) }, "Näytä QR-koodi"),
       h("button", {
         class: "secondary",
         onclick: async () => {
@@ -354,7 +356,7 @@ async function viewMachine(app, id) {
           removeMine(id);
           go("/");
         },
-      }, "🗑️ Poista listalta")),
+      }, "Poista listalta")),
   );
 }
 
@@ -383,7 +385,7 @@ function loginForm(onSuccess) {
       try {
         await api("/api/auth/login", { method: "POST", body: { username: user.value.trim(), password: pass.value } });
         await loadMe();
-        toast("Tervetuloa takaisin! ☕");
+        toast("Tervetuloa takaisin");
         onSuccess();
       } catch (e) { toast(e.message); }
     },
@@ -407,15 +409,15 @@ function registerForm(onSuccess) {
           method: "POST", body: { username: user.value.trim(), password: pass.value, password2: pass2.value },
         });
         await loadMe();
-        toast("Tunnus luotu! ☕");
+        toast("Tunnus luotu");
         onSuccess();
       } catch (e) { toast(e.message); }
     },
   },
     h("div", { class: "hint" },
-      h("b", {}, "🔒 Järjestelmä on anonyymi. "),
-      "Sähköpostia ei kysytä, joten salasanan palautusta (\"Unohdin salasanan\") ei ole. ",
-      "Jos salasana unohtuu, tunnus on menetetty. Tallenna salasana esim. salasanamanageriin."),
+      h("b", {}, "Huom: "),
+      "sähköpostia ei kysytä, joten unohtunutta salasanaa ei voi palauttaa. ",
+      "Jos salasana unohtuu, tunnus on menetetty, joten tallenna se vaikka salasanamanageriin."),
     h("label", {}, "Käyttäjätunnus (3–32 merkkiä)"), user,
     h("label", {}, "Salasana (vähintään 10 merkkiä)"), pass,
     h("label", {}, "Salasana uudelleen"), pass2,
@@ -431,7 +433,7 @@ function joinForm(onSuccess) {
       try {
         const org = await api("/api/orgs/join", { method: "POST", body: { code: code.value } });
         await loadMe();
-        toast(`Liityit: ${org.name} 🎉`);
+        toast(`Liityit organisaatioon ${org.name}`);
         onSuccess(org);
       } catch (e) { toast(e.message); }
     },
@@ -449,20 +451,20 @@ async function viewAccount(app) {
       authForms(() => route()));
     if (isIOS() && !isStandalone()) {
       app.append(h("div", { class: "hint" },
-        "📲 Huom: iPhonen kotivalikkoon lisätty sovellus pitää kirjautumisen erillään Safarista. Kirjaudu sisään vielä kerran sovelluksesta."));
+        "Huom: iPhonen kotivalikkoon lisätty sovellus ei näe Safarin kirjautumista. Kirjaudu siis sovelluksessa vielä erikseen."));
     }
     return;
   }
 
-  app.append(h("h1", {}, `👤 ${ME.user.username}`));
+  app.append(h("h1", {}, ME.user.username));
 
   app.append(h("h2", {}, "Organisaatiot"));
   if (!ME.orgs.length) app.append(h("p", { class: "muted" }, "Et kuulu vielä mihinkään organisaatioon."));
   for (const o of ME.orgs) {
     app.append(h("div", { class: "card" },
       h("div", { class: "row" },
-        h("a", { class: "title", href: `/org/${o.id}` }, `🔒 ${o.name}`),
-        h("span", { class: "badge" }, o.is_founder ? "Perustaja" : o.is_manager ? "Manageri" : "Jäsen"))));
+        h("a", { class: "title", href: `/org/${o.id}` }, o.name),
+        h("span", { class: "badge" }, o.is_founder ? "Perustaja" : o.is_manager ? "Ylläpitäjä" : "Jäsen"))));
   }
 
   app.append(h("h2", {}, "Liity organisaatioon"), joinForm((org) => go(`/org/${org.id}`)));
@@ -483,9 +485,9 @@ async function viewAccount(app) {
       },
     },
       h("div", { class: "hint" },
-        "💡 Älä käytä yrityksesi oikeaa nimeä. Keksi mieluummin kiva yhteinen lempinimi, esim. \"Kofeiinikopla\" tai \"3. kerroksen pannuporukka\"."),
+        "Vinkki: yrityksen oikeaa nimeä ei tarvita. Lempinimi riittää, esim. \"Kofeiinikopla\" tai \"3. kerroksen pannuporukka\"."),
       h("label", {}, "Organisaation lempinimi"), name,
-      h("label", { class: "check" }, auto, " Kaikki liittyjät ovat automaattisesti managereita"),
+      h("label", { class: "check" }, auto, " Kaikki liittyjät ovat automaattisesti ylläpitäjiä"),
       h("button", { type: "submit" }, "Luo organisaatio")));
 
   // Salasanan vaihto ja tilin poisto
@@ -498,10 +500,10 @@ async function viewAccount(app) {
     h("h2", {}, "Tili"),
     h("button", {
       class: "secondary",
-      onclick: async () => { await api("/api/auth/logout", { method: "POST" }); await loadMe(); toast("Kirjauduit ulos 👋"); go("/"); },
-    }, "🚪 Kirjaudu ulos"),
+      onclick: async () => { await api("/api/auth/logout", { method: "POST" }); await loadMe(); toast("Kirjauduit ulos"); go("/"); },
+    }, "Kirjaudu ulos"),
     h("details", { class: "card" },
-      h("summary", {}, "🔑 Vaihda salasana"),
+      h("summary", {}, "Vaihda salasana"),
       h("form", {
         onsubmit: async (ev) => {
           ev.preventDefault();
@@ -509,7 +511,7 @@ async function viewAccount(app) {
             await api("/api/auth/password", {
               method: "POST", body: { old_password: oldPw.value, new_password: newPw.value, new_password2: newPw2.value },
             });
-            toast("Salasana vaihdettu 🔑");
+            toast("Salasana vaihdettu");
             route();
           } catch (e) { toast(e.message); }
         },
@@ -519,7 +521,7 @@ async function viewAccount(app) {
         h("label", {}, "Uusi salasana uudelleen"), newPw2,
         h("button", { type: "submit" }, "Vaihda salasana"))),
     h("details", { class: "card danger" },
-      h("summary", {}, "🗑️ Poista tunnus"),
+      h("summary", {}, "Poista tunnus"),
       h("p", { class: "muted" }, "Tunnus, jäsenyydet ja ilmoitustilaukset poistetaan pysyvästi. Perustamasi organisaatiot pitää poistaa ensin."),
       h("form", {
         onsubmit: async (ev) => {
@@ -552,20 +554,20 @@ async function viewOrg(app, id) {
 
   // Kutsukoodi
   app.append(
-    h("h1", {}, `🔒 ${o.name}`),
+    h("h1", {}, o.name),
     h("div", { class: "card" },
-      h("div", { class: "muted" }, "Kutsukoodi – jaa työkavereille:"),
+      h("div", { class: "muted" }, "Kutsukoodi – jaa tämä niille, jotka haluat mukaan:"),
       h("div", { class: "invite" }, o.invite_code),
       h("div", { class: "row" },
         h("button", {
           class: "secondary",
           onclick: async () => {
-            try { await navigator.clipboard.writeText(o.invite_code); toast("Kopioitu 📋"); } catch { toast(o.invite_code); }
+            try { await navigator.clipboard.writeText(o.invite_code); toast("Kopioitu"); } catch { toast(o.invite_code); }
           },
-        }, "📋 Kopioi"),
+        }, "Kopioi"),
         o.is_manager ? h("button", {
           class: "secondary", onclick: act(() => post("/invite/rotate"), "Uusi kutsukoodi luotu. Vanha ei enää toimi."),
-        }, "🔄 Vaihda koodi") : null)),
+        }, "Vaihda koodi") : null)),
   );
 
   // Keittimet
@@ -577,7 +579,7 @@ async function viewOrg(app, id) {
         h("a", { class: "title", href: `/m/${m.id}` }, m.name),
         o.is_manager ? h("button", {
           class: "secondary small",
-          onclick: act(() => post(`/machines/${m.id}/unlink`), "Keitin irrotettu – se on nyt julkinen"),
+          onclick: act(() => post(`/machines/${m.id}/unlink`), "Keitin irrotettu. Se on nyt julkinen."),
         }, "Irrota") : null),
       h("div", {}, statusText(m))));
   }
@@ -586,15 +588,15 @@ async function viewOrg(app, id) {
     const linked = new Set(o.machines.map((m) => m.id));
     const candidates = myMachines().filter((m) => !linked.has(m.id));
     app.append(
-      h("button", { onclick: () => go(`/new?org=${id}`) }, "➕ Uusi keitin tähän organisaatioon"),
+      h("button", { onclick: () => go(`/new?org=${id}`) }, "Uusi keitin tähän organisaatioon"),
       candidates.length ? h("details", { class: "card" },
-        h("summary", {}, "🔗 Liitä olemassa oleva keitin"),
-        h("p", { class: "muted" }, "Liitetty keitin muuttuu yksityiseksi: sen QR-koodi toimii vain jäsenille. Ulkopuolisten ilmoitustilaukset poistetaan."),
+        h("summary", {}, "Liitä olemassa oleva keitin"),
+        h("p", { class: "muted" }, "Liitetty keitin muuttuu yksityiseksi: sen QR-koodi toimii vain jäsenille, ja muiden ilmoitustilaukset poistetaan. Vain keittimen luoja voi liittää sen."),
         candidates.map((m) => h("div", { class: "row line" },
           h("span", {}, m.name),
           h("button", {
             class: "secondary small",
-            onclick: act(() => post("/machines", { machine_id: m.id }), "Keitin liitetty 🔒"),
+            onclick: act(() => post("/machines", { machine_id: m.id, device_id: deviceId() }), "Keitin liitetty"),
           }, "Liitä")))) : "",
     );
   }
@@ -603,12 +605,12 @@ async function viewOrg(app, id) {
   app.append(h("h2", {}, `Jäsenet (${o.members.length})`));
   const list = h("div", { class: "card" });
   for (const mem of o.members) {
-    const role = mem.is_founder ? "Perustaja" : mem.is_manager ? "Manageri" : "Jäsen";
+    const role = mem.is_founder ? "Perustaja" : mem.is_manager ? "Ylläpitäjä" : "Jäsen";
     const controls = o.is_founder && !mem.is_founder ? [
       h("button", {
         class: "secondary small",
         onclick: act(() => post(`/members/${mem.id}/manager`, { is_manager: !mem.is_manager })),
-      }, mem.is_manager ? "Poista manageri" : "Tee manageriksi"),
+      }, mem.is_manager ? "Poista ylläpito-oikeus" : "Tee ylläpitäjäksi"),
       h("button", { class: "secondary small", onclick: act(() => post(`/members/${mem.id}/remove`), "Jäsen poistettu") }, "Poista"),
     ] : [];
     list.append(h("div", { class: "row line" },
@@ -624,10 +626,10 @@ async function viewOrg(app, id) {
     const confirm = h("input", { type: "text", placeholder: o.name, required: true });
     app.append(
       h("h2", {}, "Asetukset"),
-      h("label", { class: "check card" }, auto, " Kaikki uudet liittyjät ovat automaattisesti managereita"),
+      h("label", { class: "check card" }, auto, " Kaikki uudet liittyjät ovat automaattisesti ylläpitäjiä"),
       h("details", { class: "card danger" },
-        h("summary", {}, "🗑️ Poista organisaatio"),
-        h("p", { class: "muted" }, "Organisaatio, sen jäsenyydet ja KAIKKI sen kahvinkeittimet poistetaan pysyvästi. Tulostetut QR-koodit lakkaavat toimimasta. Irrota keittimet ensin, jos haluat säilyttää ne julkisina."),
+        h("summary", {}, "Poista organisaatio"),
+        h("p", { class: "muted" }, "Organisaatio, sen jäsenyydet ja kaikki sen kahvinkeittimet poistetaan pysyvästi. Tulostetut QR-koodit lakkaavat toimimasta. Irrota keittimet ensin, jos haluat säilyttää ne julkisina."),
         h("form", {
           onsubmit: async (ev) => {
             ev.preventDefault();
@@ -651,7 +653,7 @@ async function viewOrg(app, id) {
           try { await post("/leave"); await loadMe(); toast("Erosit organisaatiosta"); go("/account"); }
           catch (e) { toast(e.message); }
         },
-      }, "🚪 Eroa organisaatiosta"));
+      }, "Eroa organisaatiosta"));
   }
 }
 

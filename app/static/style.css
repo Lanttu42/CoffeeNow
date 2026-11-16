@@ -76,9 +76,11 @@ form.card button[type=submit], details form button[type=submit] { width: 100%; }
 .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--brand); color: #fff;
   padding: 12px 18px; border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,.25); max-width: 90vw; }
 .hidden { display: none; }
+footer { max-width: 520px; margin: 0 auto; padding: 0 16px calc(env(safe-area-inset-bottom) + 32px); color: var(--muted); font-size: .8rem; line-height: 1.5; border-top: 1px solid var(--line); }
+footer p { margin: 12px 0 0; }
 
 @media print {
-  header, .no-print, .toast { display: none !important; }
+  header, footer, .no-print, .toast { display: none !important; }
   body, main { background: #fff; }
   .qr { border: 2px dashed #999; }
 }

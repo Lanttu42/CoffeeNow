@@ -1,8 +1,8 @@
 """Organisaatiot: yksityiset kahvinkeitinporukat kutsukoodilla.
 
 Roolit:
-- perustaja (founder): poistaa organisaation, nimeää managerit, poistaa jäseniä, muuttaa asetuksia
-- manageri: liittää keittimiä organisaatioon, vaihtaa kutsukoodin
+- perustaja (founder): poistaa organisaation, nimeää ylläpitäjät, poistaa jäseniä, muuttaa asetuksia
+- ylläpitäjä (manager): liittää keittimiä organisaatioon, vaihtaa kutsukoodin
 - jäsen: näkee ja päivittää organisaation keittimiä
 """
 import sqlite3
@@ -10,19 +10,25 @@ import time
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from . import db, security
 
 router = APIRouter(prefix="/api/orgs")
 
-join_user_limiter = security.Limiter(10, 600, "Liikaa vääriä kutsukoodeja. Odota 10 minuuttia ☕")
-join_ip_limiter = security.Limiter(50, 600, "Liikaa vääriä kutsukoodeja. Odota 10 minuuttia ☕")
+join_user_limiter = security.Limiter(10, 600, "Liikaa vääriä kutsukoodeja. Odota 10 minuuttia.")
+join_ip_limiter = security.Limiter(50, 600, "Liikaa vääriä kutsukoodeja. Odota 10 minuuttia.")
+create_org_limiter = security.Limiter(10, 3600, "Liian monta uutta organisaatiota. Yritä myöhemmin.")
 
 
 class NewOrg(BaseModel):
     name: str = Field(min_length=1, max_length=60)
     auto_manager: bool = False
+
+    @field_validator("name")
+    @classmethod
+    def _clean(cls, v: str) -> str:
+        return security.clean_name(v)
 
 
 class JoinOrg(BaseModel):
@@ -43,6 +49,7 @@ class ConfirmDelete(BaseModel):
 
 class LinkMachine(BaseModel):
     machine_id: str = Field(max_length=40)
+    device_id: str | None = Field(default=None, min_length=8, max_length=64)
 
 
 # ---------- apurit ----------
@@ -68,7 +75,7 @@ def _load(con, org_id: str, user: dict):
 
 def _require_manager(mem) -> None:
     if not mem["is_manager"]:
-        raise HTTPException(403, "Vain manageri voi tehdä tämän")
+        raise HTTPException(403, "Vain ylläpitäjä voi tehdä tämän")
 
 
 def _require_founder(org, user) -> None:
@@ -92,7 +99,10 @@ def drop_foreign_subscriptions(con, org_id: str, machine_id: str | None = None) 
 # ---------- API ----------
 
 @router.post("", status_code=201)
-def create_org(body: NewOrg, user: dict = Depends(security.require_user)):
+def create_org(body: NewOrg, request: Request, user: dict = Depends(security.require_user)):
+    ip = security.client_ip(request)
+    create_org_limiter.check(ip)
+    create_org_limiter.hit(ip)
     org_id = str(uuid.uuid4())
     now = time.time()
     with db.connect() as con:
@@ -100,7 +110,7 @@ def create_org(body: NewOrg, user: dict = Depends(security.require_user)):
             try:
                 con.execute(
                     "INSERT INTO orgs (id, name, invite_code, founder_id, auto_manager, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                    (org_id, body.name.strip(), security.new_invite_code(), user["id"], int(body.auto_manager), now),
+                    (org_id, body.name, security.new_invite_code(), user["id"], int(body.auto_manager), now),
                 )
                 break
             except sqlite3.IntegrityError:
@@ -182,7 +192,7 @@ def set_manager(org_id: str, member_id: int, body: ManagerFlag, user: dict = Dep
         org, _ = _load(con, org_id, user)
         _require_founder(org, user)
         if member_id == org["founder_id"]:
-            raise HTTPException(400, "Perustaja on aina manageri")
+            raise HTTPException(400, "Perustaja on aina ylläpitäjä")
         cur = con.execute(
             "UPDATE memberships SET is_manager = ? WHERE org_id = ? AND user_id = ?", (int(body.is_manager), org["id"], member_id)
         )
@@ -227,13 +237,21 @@ def link_machine(org_id: str, body: LinkMachine, user: dict = Depends(security.r
     with db.connect() as con:
         org, mem = _load(con, org_id, user)
         _require_manager(mem)
-        m = con.execute("SELECT org_id FROM machines WHERE id = ?", (machine_id,)).fetchone()
+        m = con.execute(
+            "SELECT org_id, creator_user_id, creator_device_hash FROM machines WHERE id = ?", (machine_id,)
+        ).fetchone()
         if not m:
             raise HTTPException(404, "Kahvinkeitintä ei löydy")
         if m["org_id"] == org["id"]:
             return
         if m["org_id"]:
             raise HTTPException(409, "Keitin kuuluu jo toiseen organisaatioon")
+        # Julkisen keittimen saa yksityistää vain sen luoja. Muuten kuka tahansa QR-koodin nähnyt
+        # voisi viedä toimiston yhteisen keittimen omaan porukkaansa.
+        own = (m["creator_user_id"] is not None and m["creator_user_id"] == user["id"]) or (
+            body.device_id and m["creator_device_hash"] == security.hash_device(body.device_id))
+        if not own:
+            raise HTTPException(403, "Vain keittimen luoja voi liittää sen organisaatioon")
         con.execute("UPDATE machines SET org_id = ? WHERE id = ?", (org["id"], machine_id))
         con.execute("DELETE FROM wishes WHERE machine_id = ?", (machine_id,))
         drop_foreign_subscriptions(con, org["id"], machine_id)

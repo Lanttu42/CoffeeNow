@@ -4,6 +4,7 @@ import hmac
 import os
 import secrets
 import time
+import unicodedata
 from collections import defaultdict, deque
 
 from fastapi import HTTPException, Request, Response
@@ -94,7 +95,7 @@ def require_user(request: Request) -> dict:
 class Limiter:
     """Liukuva ikkuna: korkeintaan max_hits osumaa per avain per window sekuntia."""
 
-    def __init__(self, max_hits: int, window: float, message: str = "Liikaa yrityksiä, odota hetki ☕"):
+    def __init__(self, max_hits: int, window: float, message: str = "Liikaa yrityksiä, odota hetki."):
         self.max_hits, self.window, self.message = max_hits, window, message
         self.hits: dict[str, deque] = defaultdict(deque)
 
@@ -116,6 +117,22 @@ class Limiter:
 
 def client_ip(request: Request) -> str:
     return request.client.host if request.client else "?"
+
+
+# ---------- nimet ----------
+
+def clean_name(value: str) -> str:
+    """Poistaa ohjaus- ja muotoilumerkit (esim. rivinvaihdot, nollamerkki, RTL-ohitus, näkymättömät välit)
+    ja tiivistää välilyönnit. Tyhjäksi jäävä nimi hylätään."""
+    s = "".join(" " if ch.isspace() else ch for ch in value if ch.isspace() or unicodedata.category(ch) not in ("Cc", "Cf"))
+    s = " ".join(s.split())
+    if not s:
+        raise ValueError("Nimi ei voi olla tyhjä")
+    return s
+
+
+def hash_device(device_id: str) -> str:
+    return hashlib.sha256(("dev:" + device_id).encode()).hexdigest()
 
 
 # ---------- kutsukoodit ----------

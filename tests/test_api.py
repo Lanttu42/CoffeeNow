@@ -76,10 +76,20 @@ def run():
     # ---------- julkinen keitin (v1-toiminnallisuus) ----------
     s, cfg = anon.call("GET", "/api/config")
     check("config", s == 200 and cfg["push_enabled"])
-    s, pub = anon.call("POST", "/api/machines", {"name": "Julkinen keitin"})
+    s, pub = anon.call("POST", "/api/machines", {"name": "Julkinen keitin", "device_id": anon.device})
     check("anonyymi luo julkisen keittimen", s == 201 and pub["org"] is None)
     check("anonyymi lukee julkisen", anon.call("GET", f"/api/machines/{pub['id']}")[0] == 200)
     check("tyhjä nimi 422", anon.call("POST", "/api/machines", {"name": ""})[0] == 422)
+    check("pelkät välilyönnit 422", anon.call("POST", "/api/machines", {"name": "   "})[0] == 422)
+    s, m = anon.call("POST", "/api/machines", {"name": "Keitin\u202e\x00\n  2"})
+    check("ohjausmerkit siivotaan nimestä", s == 201 and m["name"] == "Keitin 2", m)
+    sub = fake_subscription("ssrf")
+    for bad in ("https://example.com/x", "https://127.0.0.1/x", "https://push.invalid.evil.com/x", "https://push.invalid:8443/x"):
+        sub["endpoint"] = bad
+        check(f"tuntematon push-endpoint hylätään: {bad}",
+              anon.call("POST", f"/api/machines/{pub['id']}/follow", {"device_id": anon.device, "subscription": sub})[0] == 422)
+    sub["endpoint"] = "https://fcm.googleapis.com/fcm/send/abc"
+    check("FCM-endpoint kelpaa", anon.call("POST", f"/api/machines/{pub['id']}/follow", {"device_id": anon.device, "subscription": sub})[0] == 204)
     check("huono uuid 404", anon.call("GET", "/api/machines/xyz")[0] == 404)
 
     # ---------- rekisteröinti & kirjautuminen ----------
@@ -157,7 +167,15 @@ def run():
     check("anonyymi seuraa julkista",
           anon.call("POST", f"/api/machines/{pub['id']}/follow", {"device_id": anon.device, "subscription": fake_subscription("anon-pub")})[0] == 204)
     check("anonyymi toivoo julkiselta", anon.call("POST", f"/api/machines/{pub['id']}/wish", {"device_id": anon.device})[0] == 200)
-    check("manageri liittää julkisen keittimen", alice.call("POST", f"/api/orgs/{oid}/machines", {"machine_id": pub["id"]})[0] == 204)
+    check("ylläpitäjä ei voi kaapata toisen luomaa julkista keitintä",
+          alice.call("POST", f"/api/orgs/{oid}/machines", {"machine_id": pub["id"], "device_id": alice.device})[0] == 403)
+    # Anonyymi luoja voi myöhemmin kirjautua ja liittää oman keittimensä samalta laitteelta
+    s, own = alice.call("POST", "/api/machines", {"name": "Alicen julkinen", "device_id": "alice-old-phone"})
+    check("ylläpitäjä liittää itse luomansa keittimen (laite-ID)",
+          alice.call("POST", f"/api/orgs/{oid}/machines", {"machine_id": own["id"], "device_id": "alice-old-phone"})[0] == 204)
+    check("luojan laite-ID ei näy API:ssa", "alice-old-phone" not in json.dumps(alice.call("GET", f"/api/machines/{own['id']}")[1]))
+    # Siirretään pub alicelle testin loppuosaa varten (luoja = anon-laite)
+    check("luojan laitteella liitos onnistuu", alice.call("POST", f"/api/orgs/{oid}/machines", {"machine_id": pub["id"], "device_id": anon.device})[0] == 204)
     check("liitetty keitin on nyt yksityinen", anon.call("GET", f"/api/machines/{pub['id']}")[0] == 401)
     s, m = alice.call("GET", f"/api/machines/{pub['id']}")
     check("liitetyn keittimen toiveet nollattu", m["wishes"] == 0)
@@ -236,7 +254,8 @@ def run():
 def main():
     tmpdir = tempfile.mkdtemp(prefix="coffeenow-test-")
     vapid = subprocess.run([sys.executable, str(ROOT / "scripts" / "gen_vapid.py")], capture_output=True, text=True, check=True)
-    env = dict(os.environ, COFFEENOW_DB=os.path.join(tmpdir, "test.db"), COOKIE_SECURE="0")
+    env = dict(os.environ, COFFEENOW_DB=os.path.join(tmpdir, "test.db"), COOKIE_SECURE="0",
+               PUSH_ALLOWED_HOSTS="push.invalid,fcm.googleapis.com")
     for line in vapid.stdout.splitlines():
         k, v = line.split("=", 1)
         env[k] = v

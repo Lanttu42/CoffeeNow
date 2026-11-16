@@ -1,4 +1,4 @@
-"""COFFEE!! ☕ – yhteisöllinen kahvinkeitinseuranta. Analoginen luottamusmalli, digitaalinen kello.
+"""COFFEE!! – yhteisöllinen kahvinkeitinseuranta.
 
 Keitin on joko
 - julkinen (org_id NULL): kuka tahansa QR-koodin skannaava voi lukea ja päivittää
@@ -14,7 +14,7 @@ import segno
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from . import auth, db, orgs, push, security
 
@@ -26,18 +26,20 @@ RATE_LIMIT_SECONDS = 5       # sama IP ei voi hakata samaa keitintä tätä tihe
 Status = Literal["ready", "brewing", "low", "empty", "supplies_low", "supplies_out"]
 
 STATUS_TEXT = {
-    "ready": "☕ Kahvia on!",
-    "brewing": "⏳ Kahvia tulossa",
-    "low": "🫗 Kahvi on vähissä",
-    "empty": "🚫 Kahvi loppu",
-    "supplies_low": "⚠️ Kahvitarvikkeet vähissä",
-    "supplies_out": "🆘 Kahvitarvikkeet loppu",
+    "ready": "Kahvia on!",
+    "brewing": "Kahvia tulossa",
+    "low": "Kahvi vähissä",
+    "empty": "Kahvi loppu",
+    "supplies_low": "Kahvitarvikkeet vähissä",
+    "supplies_out": "Kahvitarvikkeet loppu",
 }
 
 app = FastAPI(title="COFFEE!!", docs_url=None, redoc_url=None, openapi_url=None)
 app.include_router(auth.router)
 app.include_router(orgs.router)
 _last_action: dict[tuple[str, str], float] = {}
+create_limiter = security.Limiter(20, 3600, "Liian monta uutta keitintä tästä osoitteesta. Yritä myöhemmin.")
+follow_limiter = security.Limiter(60, 3600, "Liian monta tilausta tästä osoitteesta. Yritä myöhemmin.")
 
 
 @app.on_event("startup")
@@ -86,7 +88,7 @@ def _rate_limit(request: Request, machine_id: str) -> None:
     key = (security.client_ip(request), machine_id)
     now = time.time()
     if now - _last_action.get(key, 0) < RATE_LIMIT_SECONDS:
-        raise HTTPException(429, "Hetkinen, kahvi ei keity nopeammin painamalla 😉")
+        raise HTTPException(429, "Hetkinen, kahvi ei keity nopeammin painamalla.")
     _last_action[key] = now
     if len(_last_action) > 10_000:  # estetään muistin paisuminen
         _last_action.clear()
@@ -117,6 +119,12 @@ def _machine_json(con, row, mem) -> dict:
 class NewMachine(BaseModel):
     name: str = Field(min_length=1, max_length=60)
     org_id: str | None = Field(default=None, max_length=40)
+    device_id: str | None = Field(default=None, min_length=8, max_length=64)
+
+    @field_validator("name")
+    @classmethod
+    def _clean(cls, v: str) -> str:
+        return security.clean_name(v)
 
 
 class StatusUpdate(BaseModel):
@@ -138,6 +146,13 @@ class PushSubscription(BaseModel):
     endpoint: str = Field(max_length=1000, pattern=r"^https://")
     keys: PushKeys
 
+    @field_validator("endpoint")
+    @classmethod
+    def _known_push_service(cls, v: str) -> str:
+        if not push.endpoint_allowed(v):
+            raise ValueError("Tuntematon push-palvelu")
+        return v
+
 
 class Follow(BaseModel):
     device_id: str = Field(min_length=8, max_length=64)
@@ -157,18 +172,26 @@ def config():
 
 @app.post("/api/machines", status_code=201)
 def create_machine(body: NewMachine, request: Request):
+    ip = security.client_ip(request)
+    create_limiter.check(ip)
     machine_id = str(uuid.uuid4())
     org_id = None
+    user = security.current_user(request)
     with db.connect() as con:
-        if body.org_id:  # suoraan organisaatioon: vain manageri
-            user = security.require_user(request)
+        if body.org_id:  # suoraan organisaatioon: vain ylläpitäjä
+            if not user:
+                raise HTTPException(401, "login_required")
             org, mem = orgs._load(con, body.org_id, user)
             orgs._require_manager(mem)
             org_id = org["id"]
         con.execute(
-            "INSERT INTO machines (id, name, created_at, org_id) VALUES (?, ?, ?, ?)",
-            (machine_id, body.name.strip(), time.time(), org_id),
+            "INSERT INTO machines (id, name, created_at, org_id, creator_user_id, creator_device_hash)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (machine_id, body.name, time.time(), org_id, user["id"] if user else None,
+             security.hash_device(body.device_id) if body.device_id else None),
         )
+    create_limiter.hit(ip)
+    with db.connect() as con:
         row, mem, _ = _load_authorized(con, machine_id, request)
         return _machine_json(con, row, mem)
 
@@ -219,7 +242,7 @@ def wish(machine_id: str, body: DeviceOnly, request: Request, bg: BackgroundTask
     n = result["wishes"]
     bg.add_task(
         push.notify_machine, machine_id, row["name"],
-        f"🙏 Olispa kahvia! ({n} {'toive' if n == 1 else 'toivetta'})", body.device_id,
+        "Joku toivoo kahvia." if n == 1 else f"{n} ihmistä toivoo kahvia.", body.device_id,
     )
     return result
 
@@ -227,8 +250,11 @@ def wish(machine_id: str, body: DeviceOnly, request: Request, bg: BackgroundTask
 @app.post("/api/machines/{machine_id}/follow", status_code=204)
 def follow(machine_id: str, body: Follow, request: Request):
     machine_id = _valid_id(machine_id)
+    ip = security.client_ip(request)
+    follow_limiter.check(ip)
     with db.connect() as con:
         _, _, user = _load_authorized(con, machine_id, request)
+        follow_limiter.hit(ip)
         s = body.subscription
         con.execute(
             "INSERT OR REPLACE INTO subscriptions (endpoint, machine_id, device_id, p256dh, auth, created_at, user_id)"
