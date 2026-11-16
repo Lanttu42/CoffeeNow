@@ -1,7 +1,7 @@
 # COFFEE!! (lastdrop.carrata.fi) Hetznerillä Leafyn nginxin takana.
 # Käynnistys: docker compose up -d --build
 services:
-  app:
+  coffeenow:   # ei "app": nimi näkyy Leafyn verkossa ja sekoittuisi Leafyn app-palveluun
     build: .
     container_name: coffeenow
     user: "1000:1000"         # = lanttu, omistaa ./data:n
