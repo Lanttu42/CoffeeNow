@@ -47,7 +47,19 @@ a.cardlink:hover, a.cardlink:active { border-color: var(--accent); }
 .top-list .brews { flex: none; color: var(--muted); font-size: .9rem; }
 .top-list li:nth-child(-n+3) .rank { color: var(--accent); font-weight: 800; }
 .top-list .you { color: var(--muted); font-weight: 400; }
-.status-meta { justify-content: flex-start; margin: 6px 0 12px; }
+.swipe { position: relative; margin-bottom: 12px; border-radius: var(--radius); }
+.swipe-actions { position: absolute; inset: 0; border-radius: var(--radius); overflow: hidden; display: none; }
+.swipe.dir-left .swipe-actions, .swipe.dir-right .swipe-actions { display: flex; }
+.swipe-actions .act { flex: 1; display: flex; align-items: center; padding: 0 22px; color: #fff; font-weight: 800; font-size: 1.05rem; opacity: .7; transition: opacity .15s; }
+.swipe.armed .swipe-actions .act { opacity: 1; }
+.act-wish { background: var(--accent); justify-content: flex-start; }
+.act-brew { background: #2f7d43; justify-content: flex-end; }
+.swipe.dir-right .act-brew, .swipe.dir-left .act-wish { display: none; }
+.swipe-card { margin: 0; position: relative; touch-action: pan-y; user-select: none; -webkit-user-select: none;
+  transition: transform .22s ease; will-change: transform; }
+.swipe-card.dragging { transition: none; }
+.swipe-hint { color: var(--muted); font-size: .8rem; text-align: center; margin: 4px 0 0; }
+.status-meta { justify-content: flex-start; margin: 6px 0 0; }
 .row { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
 
 .status-big { font-size: 1.6rem; font-weight: 800; margin: 6px 0 2px; display: flex; align-items: center; gap: 12px; line-height: 1.2; }

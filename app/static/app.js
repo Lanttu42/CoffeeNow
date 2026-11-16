@@ -253,6 +253,7 @@ function pushHint() {
 
 // ---------- tilakuvakkeet (samasta originista -> CSP img-src 'self' riittää) ----------
 
+const FULL_POT_CUPS = 10;  // Moccamasterin täysi pannu; "Kahvia tulossa" -oletus
 const FRESH_MINUTES = 30;   // tätä tuoreempi "Kahvia on" = täysi pannu, vanhempi = puolikas
 const minutesSince = (ts) => (ts ? Math.max(0, Math.floor((Date.now() / 1000 - ts) / 60)) : null);
 
@@ -310,19 +311,28 @@ async function viewHome(app) {
       h("span", { class: "muted" }, statusText(c.data)),
       c.data.org ? h("span", { class: "badge" }, c.data.org.name) : null,
       c.data.wishes ? h("span", { class: "wishes" }, t("{n} toivoo kahvia", { n: c.data.wishes })) : null),
-    h("button", { class: "wish", onclick: () => doWish(c.id).then(() => route()) }, t("Olispa kahvia!")),
   );
+  const refresh = (c) => api(`/api/machines/${c.id}`).then((data) => { c.data = data; render(c); }).catch(() => render(c));
 
   for (const m of machines) {
-    const card = h("div", { class: "card" },
+    const card = h("div", { class: "card swipe-card" },
       h("div", { class: "status-row" }, h("a", { class: "title", href: `/m/${m.id}` }, m.name)),
       h("p", { class: "muted" }, t("Haetaan…")));
-    app.append(card);
+    const wrap = h("div", { class: "swipe" },
+      h("div", { class: "swipe-actions", "aria-hidden": "true" },
+        h("div", { class: "act act-wish" }, t("Oispa kahvia!")),
+        h("div", { class: "act act-brew" }, t("Kahvia tulossa!"))),
+      card);
+    app.append(wrap);
     const c = { id: m.id, card, data: null };
     api(`/api/machines/${m.id}`).then((data) => {
       c.data = data;
       cards.push(c);
       render(c);
+      attachSwipe(wrap, card, {
+        left: () => quickStatus(c.id, "brewing", FULL_POT_CUPS).then(() => refresh(c)),
+        right: () => doWish(c.id).then(() => refresh(c)),
+      });
     }).catch((e) => {
       const p = card.querySelector("p");
       if (e.status === 401) {
@@ -338,15 +348,75 @@ async function viewHome(app) {
     });
   }
 
+  if (machines.length) {
+    app.append(h("p", { class: "swipe-hint" },
+      t("Pyyhkäise keitintä vasemmalle, niin ilmoitat kahvin olevan tulossa. Oikealle pyyhkäisemällä toivot kahvia.")));
+  }
   app.append(h("p", {}), h("button", { class: "secondary", onclick: () => go("/new") }, t("Lisää uusi kahvinkeitin")));
 
-  // Päivitetään tilat ja minuutit minuutin välein, kun etusivu on auki
+  // Päivitetään tilat ja minuutit minuutin välein, kun etusivu on auki (ei kesken pyyhkäisyn)
   homeTimer = setInterval(() => {
     if (document.hidden) return;
-    for (const c of cards) {
-      api(`/api/machines/${c.id}`).then((data) => { c.data = data; render(c); }).catch(() => render(c));
-    }
+    for (const c of cards) if (!c.card.classList.contains("dragging")) refresh(c);
   }, 60000);
+}
+
+async function quickStatus(id, status, cups = null) {
+  try {
+    await api(`/api/machines/${id}/status`, { method: "POST", body: { status, cups, device_id: deviceId() } });
+    toast(t("Kiitos! Seuraajat saavat ilmoituksen."));
+  } catch (e) { toast(e.message); }
+}
+
+// iOS-tyylinen pyyhkäisy: kortti seuraa sormea; yli kynnyksen päästäminen laukaisee toiminnon.
+// Pystysuunta jätetään selaimelle (touch-action: pan-y), joten sivu vierii normaalisti.
+function attachSwipe(wrap, card, actions) {
+  let id = null, startX = 0, startY = 0, dx = 0, axis = null, dragged = false;
+  const threshold = () => Math.min(130, wrap.offsetWidth * 0.33);
+  const reset = () => {
+    card.classList.remove("dragging");
+    card.style.transform = "";
+    wrap.classList.remove("armed", "dir-left", "dir-right");
+    id = null; axis = null; dx = 0;
+  };
+  card.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0 || id !== null) return;
+    id = e.pointerId; startX = e.clientX; startY = e.clientY; dx = 0; axis = null; dragged = false;
+  });
+  card.addEventListener("pointermove", (e) => {
+    if (e.pointerId !== id) return;
+    const mx = e.clientX - startX, my = e.clientY - startY;
+    if (!axis) {
+      if (Math.abs(mx) < 8 && Math.abs(my) < 8) return;
+      axis = Math.abs(mx) > Math.abs(my) ? "x" : "y";
+      if (axis === "y") { id = null; return; }
+      card.setPointerCapture(id);
+      card.classList.add("dragging");
+      dragged = true;
+    }
+    const max = wrap.offsetWidth * 0.6;
+    dx = Math.abs(mx) > max ? Math.sign(mx) * (max + (Math.abs(mx) - max) * 0.2) : mx;   // jousto lopussa
+    wrap.classList.toggle("dir-right", dx > 0);
+    wrap.classList.toggle("dir-left", dx < 0);
+    const armed = Math.abs(dx) >= threshold();
+    if (armed !== wrap.classList.contains("armed")) {
+      wrap.classList.toggle("armed", armed);
+      if (armed && navigator.vibrate) navigator.vibrate(10);
+    }
+    card.style.transform = `translateX(${dx}px)`;
+  });
+  const end = (e) => {
+    if (e.pointerId !== id) return;
+    const fire = axis === "x" && Math.abs(dx) >= threshold() ? (dx < 0 ? actions.left : actions.right) : null;
+    reset();
+    if (fire) fire();
+  };
+  card.addEventListener("pointerup", end);
+  card.addEventListener("pointercancel", (e) => { if (e.pointerId === id) reset(); });
+  // Vedon jälkeen ei avata keittimen linkkiä
+  card.addEventListener("click", (e) => {
+    if (dragged) { e.preventDefault(); e.stopPropagation(); dragged = false; }
+  }, true);
 }
 
 async function doWish(id) {
@@ -438,7 +508,7 @@ async function viewMachine(app, id) {
     return;
   }
 
-  const cupsInput = h("input", { type: "number", min: "1", max: "100", value: "10", inputmode: "numeric" });
+  const cupsInput = h("input", { type: "number", min: "1", max: "100", value: String(FULL_POT_CUPS), inputmode: "numeric" });
   const cupsBox = h("div", { class: "card hidden" },
     h("label", {}, t("Montako kuppia tulossa?")), cupsInput,
     h("button", { onclick: () => setStatus("brewing", parseInt(cupsInput.value, 10) || null) }, t("Ilmoita")));
@@ -478,7 +548,7 @@ async function viewMachine(app, id) {
       h("div", { class: "row" },
         h("span", { class: "muted" }, m.updated_at ? t("Päivitetty {ago}", { ago: ago(m.updated_at) }) : ""),
         m.wishes ? h("span", { class: "wishes" }, t("{n} toivoo kahvia", { n: m.wishes })) : null)),
-    h("button", { class: "wish", onclick: () => doWish(id).then(() => route()) }, t("Olispa kahvia!")),
+    h("button", { class: "wish", onclick: () => doWish(id).then(() => route()) }, t("Oispa kahvia!")),
     h("h2", {}, t("Päivitä tilanne")),
     h("div", { class: "grid" }, buttons),
     cupsBox,
