@@ -170,7 +170,19 @@ def run():
     top = alice.call("GET", f"/api/machines/{pid}/top")[1]["top"]
     check("tulossa + valmis = yksi pannu", top == [{"username": "alice", "brews": 1}], top)
     wait_rate_limit()
-    alice.call("POST", f"/api/machines/{pid}/status", {"status": "empty", "device_id": alice.device})
+    bob.call("POST", f"/api/machines/{pid}/status", {"status": "empty", "device_id": bob.device})
+    top = alice.call("GET", f"/api/machines/{pid}/top")[1]["top"]
+    check("loppu alle 5 min pannun jälkeen mitätöi pannun", top == [], top)
+    wait_rate_limit()
+    alice.call("POST", f"/api/machines/{pid}/status", {"status": "ready", "device_id": alice.device})
+    wait_rate_limit()
+    bob.call("POST", f"/api/machines/{pid}/status", {"status": "low", "device_id": bob.device})
+    top = alice.call("GET", f"/api/machines/{pid}/top")[1]["top"]
+    check("myös 'Kahvia on' + vähissä heti perään mitätöityy", top == [], top)
+    wait_rate_limit()
+    alice.call("POST", f"/api/machines/{pid}/status", {"status": "ready", "device_id": alice.device})
+    wait_rate_limit()
+    alice.call("POST", f"/api/machines/{pid}/status", {"status": "supplies_low", "device_id": alice.device})
     wait_rate_limit()
     alice.call("POST", f"/api/machines/{pid}/status", {"status": "ready", "device_id": alice.device})
     top = alice.call("GET", f"/api/machines/{pid}/top")[1]["top"]

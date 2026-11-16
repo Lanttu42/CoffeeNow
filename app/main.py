@@ -22,6 +22,7 @@ STATIC = Path(__file__).parent / "static"
 
 WISH_TTL = 2 * 3600          # toive vanhenee 2 tunnissa
 BREW_COOLDOWN = 20 * 60     # sama käyttäjä saa samasta keittimestä enintään yhden pannun tässä ajassa
+BREW_CANCEL_WINDOW = 5 * 60  # loppu/vähissä tätä nopeammin pannun jälkeen -> pannu mitätöidään
 TOP_N = 10
 RATE_LIMIT_SECONDS = 5       # sama IP ei voi hakata samaa keitintä tätä tiheämmin
 
@@ -225,6 +226,9 @@ def set_status(machine_id: str, body: StatusUpdate, request: Request, bg: Backgr
             (machine_id, user["id"], now - BREW_COOLDOWN),
         ).fetchone():
             con.execute("INSERT INTO brews (machine_id, user_id, created_at) VALUES (?, ?, ?)", (machine_id, user["id"], now))
+        # Grindauksen esto: jos kahvi on "loppu" tai "vähissä" alle 5 min pannun jälkeen, pannua tuskin keitettiin
+        if body.status in ("empty", "low"):
+            con.execute("DELETE FROM brews WHERE machine_id = ? AND created_at > ?", (machine_id, now - BREW_CANCEL_WINDOW))
         # Kun kahvia on tai on tulossa, toiveet on täytetty -> nollataan
         if body.status in ("ready", "brewing"):
             con.execute("DELETE FROM wishes WHERE machine_id = ?", (machine_id,))
