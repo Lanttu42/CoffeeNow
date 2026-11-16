@@ -292,6 +292,17 @@ async function viewHome(app) {
   const local = myMachines();
   const localIds = new Set(local.map((m) => m.id));
   const machines = [...local, ...ME.machines.filter((m) => !localIds.has(m.id))];
+  // Ensikävijälle: mikä tää on?
+  if (!store.get("introSeen", false)) {
+    const intro = h("div", { class: "card intro" },
+      h("h2", {}, t("Uusi täällä?")),
+      h("p", {}, t("COFFEE!! kertoo työkavereille, onko kahvia, ja hälyttää, kun sitä on tulossa.")),
+      h("div", { class: "row" },
+        h("button", { onclick: () => go("/ohje") }, t("Mikä tää on?")),
+        h("button", { class: "secondary", onclick: () => { store.set("introSeen", true); intro.remove(); } }, t("Sulje"))));
+    app.append(intro);
+  }
+
   app.append(h("h1", {}, t("Omat kahvinkeittimet")));
 
   if (!machines.length) {
@@ -352,6 +363,7 @@ async function viewHome(app) {
       t("Pyyhkäise keitintä vasemmalle, niin ilmoitat kahvin olevan tulossa. Oikealle pyyhkäisemällä toivot kahvia.")));
   }
   app.append(h("p", {}), h("button", { class: "secondary", onclick: () => go("/new") }, t("Lisää uusi kahvinkeitin")));
+  app.append(h("p", { class: "guide-link" }, h("a", { href: "/ohje" }, t("Mikä tää on?"))));
 
   // Päivitetään tilat ja minuutit minuutin välein, kun etusivu on auki (ei kesken pyyhkäisyn)
   homeTimer = setInterval(() => {
@@ -469,6 +481,7 @@ async function viewQr(app, id) {
     h("p", { class: "no-print" }),
     h("div", { class: "row no-print" },
       h("button", { onclick: () => window.print() }, t("Tulosta")),
+      h("button", { class: "secondary", onclick: () => shareMachine(m) }, t("Jaa linkki")),
       h("button", { class: "secondary", onclick: () => go(`/m/${id}`) }, t("Avaa keitin"))),
   );
 }
@@ -911,6 +924,53 @@ async function viewOrg(app, id) {
   }
 }
 
+// ---------- ohje ensikävijälle ----------
+
+function viewGuide(app) {
+  store.set("introSeen", true);
+  const step = (n, title, text, action) => h("div", { class: "card guide-step" },
+    h("div", { class: "step-no" }, String(n)),
+    h("div", {},
+      h("h2", {}, title),
+      h("p", {}, text),
+      action || ""));
+  const btn = (label, path) => h("button", { class: "secondary", onclick: () => go(path) }, label);
+  app.append(
+    h("h1", {}, t("Mikä tää on?")),
+    h("p", { class: "muted" }, t("COFFEE!! on kahvinkeittimen ilmoitustaulu. Kun joku keittää kahvia, muut näkevät sen heti puhelimestaan.")),
+    step(1, t("Ei tarvitse rekisteröityä"),
+      t("Voit aloittaa heti ilman tunnusta. Omat keittimesi tallentuvat tämän laitteen selaimeen.")),
+    step(2, t("Lisää keitin"),
+      t("Anna keittimelle nimi, niin saat siitä QR-koodin."),
+      btn(t("Lisää uusi kahvinkeitin"), "/new")),
+    step(3, t("Jaa keitin muiden kanssa"),
+      t("Tulosta QR-koodi ja teippaa se keittimen kylkeen. Kun työkaveri skannaa koodin puhelimellaan, hän näkee kahvitilanteen ja voi päivittää sitä. Linkin voi myös lähettää viestillä QR-koodisivun Jaa linkki -napista.")),
+    step(4, t("Kerro ja seuraa"),
+      t("Etusivulla pyyhkäise keitintä vasemmalle, kun kahvia on tulossa, ja oikealle, kun kaipaat kahvia. Keittimen sivulla voit laittaa ilmoitukset päälle. iPhonella ilmoitukset toimivat, kun lisäät sivun kotivalikkoon.")),
+    step(5, t("Luo tunnus, jos tarvitset"),
+      t("Tunnusta tarvitaan vain yksityisiin keittimiin ja TOP 10 Brewers -listalle. Sähköpostia ei kysytä."),
+      ME.user ? "" : btn(t("Luo tunnus"), "/account")),
+    step(6, t("Perusta organisaatio tiimillesi"),
+      t("Organisaatio on porukka, jonka keittimet näkyvät vain sen jäsenille. Perusta se tilisivulla ja jaa kutsukoodi työkavereille. Kaikkien organisaatioidesi keittimet näkyvät etusivulla."),
+      btn(t("Tilisivulle"), "/account")),
+    h("p", {}),
+    h("button", { onclick: () => go("/") }, t("Selvä, aloitetaan")),
+  );
+}
+
+// Keittimen linkin jako: puhelimessa jakovalikko, muuten kopio leikepöydälle
+async function shareMachine(m) {
+  const url = `${location.origin}/m/${m.id}`;
+  try {
+    if (navigator.share) { await navigator.share({ title: m.name, url }); return; }
+    await navigator.clipboard.writeText(url);
+    toast(t("Linkki kopioitu"));
+  } catch (e) {
+    if (e && e.name === "AbortError") return;   // käyttäjä sulki jakovalikon
+    toast(url);
+  }
+}
+
 // ---------- alalaita, kieli ja versio ----------
 
 const VERSION = document.querySelector('meta[name="app-version"]')?.content || "";
@@ -972,6 +1032,7 @@ async function route() {
     else if ((match = p.match(new RegExp(`^/org/(${UUID})$`)))) await viewOrg(app, match[1]);
     else if (p === "/account") await viewAccount(app);
     else if (p === "/new") viewNew(app);
+    else if (p === "/ohje") viewGuide(app);
     else await viewHome(app);
   } catch (e) {
     app.append(h("h1", {}, t("Hups!")), h("p", {}, e.message));

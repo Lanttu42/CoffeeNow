@@ -58,6 +58,16 @@ a.cardlink:hover, a.cardlink:active { border-color: var(--accent); }
 .swipe-card { margin: 0; position: relative; touch-action: pan-y; user-select: none; -webkit-user-select: none;
   transition: transform .22s ease; will-change: transform; }
 .swipe-card.dragging { transition: none; }
+.intro { border-color: var(--accent); }
+.intro h2 { margin: 0 0 6px; color: var(--ink); }
+.intro p { margin: 0 0 12px; }
+.guide-link { text-align: center; font-size: .9rem; margin: 18px 0 0; }
+.guide-link a { color: var(--muted); }
+.guide-step { display: flex; gap: 14px; align-items: flex-start; }
+.guide-step h2 { margin: 2px 0 6px; color: var(--ink); font-size: 1.05rem; }
+.guide-step p { margin: 0 0 10px; }
+.step-no { flex: none; width: 32px; height: 32px; border-radius: 50%; background: var(--accent); color: #fff;
+  display: flex; align-items: center; justify-content: center; font-weight: 800; }
 .swipe-hint { color: var(--muted); font-size: .8rem; text-align: center; margin: 4px 0 0; }
 .status-meta { justify-content: flex-start; margin: 6px 0 0; }
 .row { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
