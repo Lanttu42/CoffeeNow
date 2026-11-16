@@ -85,7 +85,21 @@ uvicorn app.main:app --reload
 
 Ilman VAPID-avaimia kaikki muu toimii, ilmoitukset vain kirjataan lokiin. Service worker toimii `localhost`issa myös ilman HTTPS:ää. Kirjautuminen paikallisesti ilman HTTPS:ää vaatii `COOKIE_SECURE=0` (älä koskaan tuotannossa).
 
-## Asennus Hetzneriin (Ubuntu/Debian)
+## Asennus Dockerilla (Hetzner, Leafyn nginxin takana)
+
+Tuotanto osoitteessa `lastdrop.carrata.fi` pyörii kontissa ilman julkisia portteja. HTTPS:n ja otsakkeet hoitaa
+Leafyn nginx (`~/servers/leafy`), joka välittää `leafy_default`-verkossa konttiin `coffeenow:8000`.
+
+```bash
+cd ~/servers/coffeenow
+python3 scripts/gen_vapid.py > .env && echo "VAPID_SUBJECT=https://lastdrop.carrata.fi" >> .env && chmod 600 .env
+mkdir -p data && docker compose up -d --build
+sh deploy/lastdrop-tls.sh     # varmenne Leafyn certbotilla + deploy/nginx-lastdrop.conf käyttöön
+```
+
+Päivitys: `git pull && docker compose up -d --build`. Data: `data/coffeenow.db`.
+
+## Asennus ilman Dockeria (Ubuntu/Debian, Caddy + systemd)
 
 Edellytys: domain (esim. `coffee.omadomain.fi`), jonka A-tietue osoittaa palvelimeen, ja portit 80/443 auki.
 

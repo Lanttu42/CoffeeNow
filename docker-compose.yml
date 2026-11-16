@@ -1,0 +1,29 @@
+# COFFEE!! (lastdrop.carrata.fi) Hetznerillä Leafyn nginxin takana.
+# Käynnistys: docker compose up -d --build
+services:
+  app:
+    build: .
+    container_name: coffeenow
+    user: "1000:1000"         # = lanttu, omistaa ./data:n
+    restart: unless-stopped
+    env_file: .env            # VAPID-avaimet (oikeudet 600, ei repoon)
+    environment:
+      COFFEENOW_DB: /data/coffeenow.db
+      HOME: /tmp
+    volumes:
+      - ./data:/data
+    networks: [leafy]
+    # Ei portteja ulos. Rajat, jotta peliserverit saavat tehot.
+    cpus: 0.5
+    mem_limit: 128m
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+
+networks:
+  leafy:
+    external: true
+    name: leafy_default
