@@ -2,6 +2,7 @@
 import json
 import logging
 import os
+import time
 from urllib.parse import urlsplit
 
 from pywebpush import WebPushException, webpush
@@ -55,8 +56,9 @@ def notify_machine(machine_id: str, title: str, body, skip_device: str | None = 
             "SELECT s.endpoint, s.device_id, s.p256dh, s.auth, s.lang FROM subscriptions s"
             " JOIN machines m ON m.id = s.machine_id"
             " WHERE s.machine_id = ? AND (m.org_id IS NULL OR EXISTS ("
-            "   SELECT 1 FROM memberships ms WHERE ms.org_id = m.org_id AND ms.user_id = s.user_id))",
-            (machine_id,),
+            "   SELECT 1 FROM memberships ms WHERE ms.org_id = m.org_id AND ms.user_id = s.user_id))"
+            " AND NOT EXISTS (SELECT 1 FROM push_mutes pm WHERE pm.endpoint = s.endpoint AND pm.until > ?)",
+            (machine_id, time.time()),
         ).fetchall()
 
     dead = []

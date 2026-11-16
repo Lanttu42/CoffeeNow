@@ -51,6 +51,7 @@ MESSAGES: dict[str, dict[str, str]] = {
     "Liian monta uutta keitintä tästä osoitteesta. Yritä myöhemmin.": {"en": "Too many new coffee makers from this address. Try again later.", "sv": "För många nya kaffebryggare från den här adressen. Försök igen senare."},
     "Liikaa uusia tunnuksia tästä osoitteesta. Yritä myöhemmin.": {"en": "Too many new accounts from this address. Try again later.", "sv": "För många nya konton från den här adressen. Försök igen senare."},
     "Liian monta tilausta tästä osoitteesta. Yritä myöhemmin.": {"en": "Too many subscriptions from this address. Try again later.", "sv": "För många prenumerationer från den här adressen. Försök igen senare."},
+    "Ilmoitustilausta ei löydy": {"en": "Notification subscription not found", "sv": "Notisprenumerationen hittades inte"},
     "Liikaa yrityksiä, odota hetki.": {"en": "Too many attempts, wait a moment.", "sv": "För många försök, vänta en stund."},
 }
 

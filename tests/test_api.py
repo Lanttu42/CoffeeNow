@@ -108,6 +108,20 @@ def run():
               anon.call("POST", f"/api/machines/{pub['id']}/follow", {"device_id": anon.device, "subscription": sub})[0] == 422)
     sub["endpoint"] = "https://fcm.googleapis.com/fcm/send/abc"
     check("FCM-endpoint kelpaa", anon.call("POST", f"/api/machines/{pub['id']}/follow", {"device_id": anon.device, "subscription": sub})[0] == 204)
+
+    # ---------- hiljennys ----------
+    ep = sub["endpoint"]
+    check("hiljennys vaatii tilauksen",
+          anon.call("POST", "/api/push/mute", {"endpoint": "https://fcm.googleapis.com/fcm/send/eiole", "minutes": 60})[0] == 404)
+    check("vain sallitut kestot", anon.call("POST", "/api/push/mute", {"endpoint": ep, "minutes": 5})[0] == 422)
+    s2, r = anon.call("POST", "/api/push/mute", {"endpoint": ep, "minutes": 240})
+    check("hiljennys 4 h", s2 == 200 and 4 * 3600 - 60 < r["until"] - time.time() <= 4 * 3600, r)
+    check("hiljennys toistaiseksi", anon.call("POST", "/api/push/mute", {"endpoint": ep, "minutes": None}) == (200, {"until": None}))
+    import sqlite3 as _sq
+    _c = _sq.connect(os.environ["COFFEENOW_DB"])
+    check("hiljennys tallessa", _c.execute("SELECT until > ? FROM push_mutes WHERE endpoint = ?", (time.time() + 10**8, ep)).fetchone() == (1,))
+    check("hiljennyksen poisto", anon.call("POST", "/api/push/unmute", {"endpoint": ep})[0] == 204
+          and _c.execute("SELECT COUNT(*) FROM push_mutes WHERE endpoint = ?", (ep,)).fetchone() == (0,))
     check("huono uuid 404", anon.call("GET", "/api/machines/xyz")[0] == 404)
 
     # ---------- rekisteröinti & kirjautuminen ----------

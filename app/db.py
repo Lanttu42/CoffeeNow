@@ -67,6 +67,10 @@ CREATE TABLE IF NOT EXISTS brews (           -- TOP 10 Brewers: kirjautuneiden k
     created_at  REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_brews_machine ON brews(machine_id, user_id);
+CREATE TABLE IF NOT EXISTS push_mutes (       -- laitteen hiljennys: ei ilmoituksia ennen tätä hetkeä
+    endpoint    TEXT PRIMARY KEY,
+    until       REAL NOT NULL
+);
 CREATE INDEX IF NOT EXISTS idx_machines_org ON machines(org_id);
 CREATE INDEX IF NOT EXISTS idx_memberships_user ON memberships(user_id);
 """

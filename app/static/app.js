@@ -151,13 +151,93 @@ async function follow(machineId) {
     body: { device_id: deviceId(), subscription: sub.toJSON() },
   });
   store.set("followed", [...new Set([...followed(), machineId])]);
+  renderBell();
 }
 
 async function unfollow(machineId) {
   const sub = await pushSubscription(false);
   if (sub) await api(`/api/machines/${machineId}/unfollow`, { method: "POST", body: { endpoint: sub.endpoint } });
   store.set("followed", followed().filter((id) => id !== machineId));
+  renderBell();
 }
+
+// ---------- hiljennys (yläreunan kello) ----------
+
+// muteUntil: ms-aikaleima, "forever" tai null
+const muteUntil = () => {
+  const u = store.get("muteUntil", null);
+  return u === "forever" || (typeof u === "number" && u > Date.now()) ? u : null;
+};
+
+function muteStateText() {
+  const u = muteUntil();
+  if (!u) return t("Ilmoitukset päällä");
+  if (u === "forever") return t("Ilmoitukset hiljennetty toistaiseksi");
+  const d = new Date(u);
+  const sameDay = d.toDateString() === new Date().toDateString();
+  const when = d.toLocaleString(LANG, sameDay ? { hour: "2-digit", minute: "2-digit" } : { weekday: "short", hour: "2-digit", minute: "2-digit" });
+  return t("Ilmoitukset hiljennetty {until} asti", { until: when });
+}
+
+function renderBell() {
+  const bell = document.getElementById("bell");
+  const show = "PushManager" in window && followed().length > 0;
+  bell.classList.toggle("hidden", !show);
+  if (!show) { closeMuteMenu(); return; }
+  const muted = !!muteUntil();
+  bell.classList.toggle("muted", muted);
+  bell.replaceChildren(h("img", { src: muted ? "/static/icons/bell-off.svg" : "/static/icons/bell.svg", alt: "" }));
+  bell.setAttribute("aria-label", muteStateText());
+  bell.title = muteStateText();
+}
+
+async function setMute(minutes) {
+  try {
+    const sub = await pushSubscription(false);
+    if (!sub) throw new Error(t("Ilmoitustilausta ei löydy"));
+    if (minutes === 0) {
+      await api("/api/push/unmute", { method: "POST", body: { endpoint: sub.endpoint } });
+      store.set("muteUntil", null);
+      toast(t("Hiljennys poistettu"));
+    } else {
+      await api("/api/push/mute", { method: "POST", body: { endpoint: sub.endpoint, minutes } });
+      store.set("muteUntil", minutes ? Date.now() + minutes * 60000 : "forever");
+      toast(t("Ilmoitukset hiljennetty"));
+    }
+  } catch (e) { toast(e.message); }
+  closeMuteMenu();
+  renderBell();
+}
+
+function openMuteMenu() {
+  const menu = document.getElementById("mute-menu");
+  const muted = !!muteUntil();
+  const opt = (label, minutes) => h("button", { class: "secondary", role: "menuitem", onclick: () => setMute(minutes) }, label);
+  menu.replaceChildren(
+    h("p", { class: "state" }, muteStateText()),
+    muted ? h("button", { class: "unmute", role: "menuitem", onclick: () => setMute(0) }, t("Poista hiljennys")) : "",
+    h("div", { class: "muted" }, t("Hiljennä ilmoitukset")),
+    h("p", {}),
+    h("div", { class: "options" },
+      opt(t("1 tunniksi"), 60), opt(t("4 tunniksi"), 240), opt(t("Päiväksi"), 1440), opt(t("Toistaiseksi"), null)),
+    h("p", { class: "small-print" }, t("Samasta keittimestä tulee enintään yksi ilmoitus kahdessa minuutissa ja toiveista enintään yksi vartissa.")));
+  menu.classList.remove("hidden");
+  document.getElementById("bell").setAttribute("aria-expanded", "true");
+}
+
+function closeMuteMenu() {
+  document.getElementById("mute-menu").classList.add("hidden");
+  document.getElementById("bell").setAttribute("aria-expanded", "false");
+}
+
+document.getElementById("bell").addEventListener("click", (ev) => {
+  ev.stopPropagation();
+  document.getElementById("mute-menu").classList.contains("hidden") ? openMuteMenu() : closeMuteMenu();
+});
+document.addEventListener("click", (ev) => {
+  if (!ev.target.closest("#mute-menu")) closeMuteMenu();
+});
+document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") closeMuteMenu(); });
 
 function pushHint() {
   if (isIOS() && !isStandalone()) {
@@ -748,6 +828,7 @@ const BUILD = document.querySelector('meta[name="app-build"]')?.content || "";
 
 function renderChrome() {
   document.getElementById("account-link").textContent = ME.user ? ME.user.username : t("Kirjaudu");
+  renderBell();
   document.getElementById("footer").replaceChildren(
     h("p", {}, t("COFFEE!! on harrastusprojekti, joka tehtiin Clauden (Anthropicin tekoälyavustaja) kanssa alle tunnissa. Se toimii, mutta kaikkea ei ole viimeisen päälle hiottu.")),
     h("p", {}, t("Sähköpostia tai oikeaa nimeä ei kysytä. Oma keitinlistasi tallentuu vain tämän laitteen selaimeen. Kirjautuminen käyttää yhtä evästettä, ei seurantaa eikä mainoksia.")),

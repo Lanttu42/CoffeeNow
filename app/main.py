@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from pydantic import BaseModel, Field, field_validator
 
-from . import auth, db, i18n, orgs, push, security
+from . import auth, db, i18n, notify, orgs, push, security
 
 STATIC = Path(__file__).parent / "static"
 
@@ -195,6 +195,11 @@ class Unfollow(BaseModel):
     endpoint: str = Field(max_length=1000)
 
 
+class Mute(BaseModel):
+    endpoint: str = Field(max_length=1000)
+    minutes: Literal[60, 240, 1440] | None = None   # None = toistaiseksi
+
+
 # ---------- API ----------
 
 @app.get("/api/config")
@@ -268,7 +273,7 @@ def set_status(machine_id: str, body: StatusUpdate, request: Request, bg: Backgr
         t = i18n.tr(STATUS_TEXT[body.status], lang)
         return t + i18n.tr(" ({n} kuppia)", lang, n=cups) if cups else t
 
-    bg.add_task(push.notify_machine, machine_id, row["name"], text, body.device_id)
+    bg.add_task(notify.status_changed, machine_id, body.status, row["name"], text, body.device_id)
     return result
 
 
@@ -300,7 +305,7 @@ def wish(machine_id: str, body: DeviceOnly, request: Request, bg: BackgroundTask
 
     n = result["wishes"]
     bg.add_task(
-        push.notify_machine, machine_id, row["name"],
+        notify.wished, machine_id, row["name"],
         lambda lang: i18n.tr("Joku toivoo kahvia." if n == 1 else "{n} ihmistä toivoo kahvia.", lang, n=n),
         body.device_id,
     )
@@ -332,6 +337,31 @@ def unfollow(machine_id: str, body: Unfollow):
         con.execute(
             "DELETE FROM subscriptions WHERE endpoint = ? AND machine_id = ?", (body.endpoint, machine_id)
         )
+
+
+# ---------- hiljennys (laitekohtainen: push-endpoint on laitteen salaisuus) ----------
+
+MUTE_FOREVER = 4102444800.0  # 2100-01-01
+
+
+def _require_subscription(con, endpoint: str) -> None:
+    if not con.execute("SELECT 1 FROM subscriptions WHERE endpoint = ?", (endpoint,)).fetchone():
+        raise HTTPException(404, "Ilmoitustilausta ei löydy")
+
+
+@app.post("/api/push/mute")
+def mute(body: Mute):
+    until = time.time() + body.minutes * 60 if body.minutes else MUTE_FOREVER
+    with db.connect() as con:
+        _require_subscription(con, body.endpoint)
+        con.execute("INSERT OR REPLACE INTO push_mutes (endpoint, until) VALUES (?, ?)", (body.endpoint, until))
+    return {"until": None if until == MUTE_FOREVER else until}
+
+
+@app.post("/api/push/unmute", status_code=204)
+def unmute(body: Unfollow):
+    with db.connect() as con:
+        con.execute("DELETE FROM push_mutes WHERE endpoint = ?", (body.endpoint,))
 
 
 @app.get("/api/machines/{machine_id}/qr.svg")
