@@ -18,6 +18,9 @@ Tehty Clauden kanssa alle tunnissa harrastusprojektina.
 | Ensimmäinen skannaus | "Lisätäänkö tämä kahvinkeitin omiin kahvinkeittimiisi?" |
 | Seuraavat skannaukset | Tilan päivitys suoraan |
 | Tilat | Kahvia on · Kahvia tulossa (kupit + aika) · Vähissä · Loppu · Tarvikkeet vähissä · Tarvikkeet loppu |
+| Kahvia tulossa | Keittimen sivulta: kahvityyppi + kuppimäärä. Pikana (pyyhkäisy etusivulla): edellisen pannun arvot, merkitään "(ehkä)" |
+| Keittoaika | Asetus min/kuppi (oletus 1, 0 = heti valmis). Ajan kuluttua tila vaihtuu itsestään "Kahvia on" ja seuraajat saavat ilmoituksen. Etusivulla prosenttilaskuri, kuplat ja animoitu reuna; "Kahvia on" = kultainen reuna |
+| Kahvityypit | Keitinkohtainen lista asetuksissa (oletus: Tavallinen, Tumma paahto, Kofeiiniton) |
 | Olispa kahvia! | Kahvitoive, näkyy laskurina ja menee seuraajille ilmoituksena. Nollautuu kun kahvia on/tulossa, vanhenee 2 h:ssa |
 | Seuraa | Push-ilmoitukset keittimen tilamuutoksista |
 

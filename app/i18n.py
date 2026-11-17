@@ -21,6 +21,15 @@ MESSAGES: dict[str, dict[str, str]] = {
     "Joku toivoo kahvia.": {"en": "Someone is wishing for coffee.", "sv": "Någon önskar sig kaffe."},
     "{n} ihmistä toivoo kahvia.": {"en": "{n} people are wishing for coffee.", "sv": "{n} personer önskar sig kaffe."},
     " ({n} kuppia)": {"en": " ({n} cups)", "sv": " ({n} koppar)"},
+    "{n} kuppia": {"en": "{n} cups", "sv": "{n} koppar"},
+    " (ehkä)": {"en": " (maybe)", "sv": " (kanske)"},
+    " – valmis noin {n} min päästä.": {"en": " – ready in about {n} min.", "sv": " – klart om cirka {n} min."},
+    "Kahvi on valmista!": {"en": "Coffee is ready!", "sv": "Kaffet är klart!"},
+    # oletuskahvityypit
+    "Tavallinen": {"en": "Regular", "sv": "Vanligt"},
+    "Tumma paahto": {"en": "Dark roast", "sv": "Mörkrost"},
+    "Kofeiiniton": {"en": "Decaf", "sv": "Koffeinfritt"},
+    "Tuntematon kahvityyppi": {"en": "Unknown coffee type", "sv": "Okänd kaffesort"},
     # virheet
     "Salasanan pitää olla vähintään 10 merkkiä": {"en": "The password must be at least 10 characters", "sv": "Lösenordet måste vara minst 10 tecken"},
     "Käyttäjätunnus: 3–32 merkkiä, kirjaimia, numeroita tai _ . -": {"en": "Username: 3–32 characters, letters, numbers or _ . -", "sv": "Användarnamn: 3–32 tecken, bokstäver, siffror eller _ . -"},

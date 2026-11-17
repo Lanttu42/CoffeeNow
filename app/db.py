@@ -43,7 +43,14 @@ CREATE TABLE IF NOT EXISTS machines (
     org_id      TEXT REFERENCES orgs(id) ON DELETE CASCADE,  -- NULL = julkinen keitin
     creator_user_id     INTEGER,   -- luoja (jos kirjautunut): vain luoja voi liittää julkisen keittimen organisaatioon
     creator_device_hash TEXT,      -- luojan laite-ID:n hash (sama tarkoitus kirjautumattomalle)
-    full_pot_cups       INTEGER    -- täyden pannun kuppimäärä (NULL = oletus 10)
+    full_pot_cups       INTEGER,   -- täyden pannun kuppimäärä (NULL = oletus 10)
+    brew_type           TEXT,      -- nykyisen pannun kahvityyppi
+    brew_estimated      INTEGER,   -- 1 = pikailmoitus: kuppimäärä ja tyyppi arvattu edellisestä ("ehkä")
+    brew_ready_at       REAL,      -- milloin "tulossa" muuttuu automaattisesti "on"-tilaan
+    last_brew_type      TEXT,      -- edellisen pannun tyyppi (pikailmoituksen oletus)
+    last_brew_cups      INTEGER,   -- edellisen pannun kuppimäärä (pikailmoituksen oletus)
+    brew_min_per_cup    REAL,      -- keittoaika minuutteina per kuppi (NULL = oletus 1, 0 = heti valmis)
+    coffee_types        TEXT       -- JSON-lista keittimen kahvityypeistä (NULL = oletuslista)
 );
 CREATE TABLE IF NOT EXISTS wishes (
     machine_id  TEXT NOT NULL REFERENCES machines(id) ON DELETE CASCADE,
@@ -82,6 +89,13 @@ MIGRATIONS = [
     ("machines", "creator_user_id", "ALTER TABLE machines ADD COLUMN creator_user_id INTEGER"),
     ("machines", "creator_device_hash", "ALTER TABLE machines ADD COLUMN creator_device_hash TEXT"),
     ("machines", "full_pot_cups", "ALTER TABLE machines ADD COLUMN full_pot_cups INTEGER"),
+    ("machines", "brew_type", "ALTER TABLE machines ADD COLUMN brew_type TEXT"),
+    ("machines", "brew_estimated", "ALTER TABLE machines ADD COLUMN brew_estimated INTEGER"),
+    ("machines", "brew_ready_at", "ALTER TABLE machines ADD COLUMN brew_ready_at REAL"),
+    ("machines", "last_brew_type", "ALTER TABLE machines ADD COLUMN last_brew_type TEXT"),
+    ("machines", "last_brew_cups", "ALTER TABLE machines ADD COLUMN last_brew_cups INTEGER"),
+    ("machines", "brew_min_per_cup", "ALTER TABLE machines ADD COLUMN brew_min_per_cup REAL"),
+    ("machines", "coffee_types", "ALTER TABLE machines ADD COLUMN coffee_types TEXT"),
     ("subscriptions", "lang", "ALTER TABLE subscriptions ADD COLUMN lang TEXT"),
     ("subscriptions", "user_id", "ALTER TABLE subscriptions ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE"),
 ]

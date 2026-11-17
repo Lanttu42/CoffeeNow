@@ -105,8 +105,76 @@ function ago(ts) {
 
 function statusText(m) {
   let s = t(STATUS[m.status] || STATUS.unknown);
-  if (m.status === "brewing" && m.cups) s += t(" ({n} kuppia)", { n: m.cups });
+  if (m.status === "brewing" || m.status === "ready") {
+    const parts = [];
+    if (m.cups) parts.push(t("{n} kuppia", { n: m.cups }));
+    if (m.brew_type) parts.push(t(m.brew_type));
+    if (parts.length) s += ` (${parts.join(", ")})`;
+    if (m.estimated && parts.length) s += t(" (ehkä)");
+  }
   return s;
+}
+
+function brewEta(m) {
+  if (m.status !== "brewing" || !m.brew_ready_at) return "";
+  const min = Math.ceil((m.brew_ready_at - Date.now() / 1000) / 60);
+  return min <= 0 ? t("valmistuu ihan just") : t("valmis noin {n} min päästä", { n: min });
+}
+
+// ---------- sekuntiajastin (prosenttilaskurit); route() tyhjentää ----------
+
+const tickers = new Set();
+let tickTimer = null;
+
+function addTicker(fn) {
+  tickers.add(fn);
+  if (!tickTimer) tickTimer = setInterval(() => { if (!document.hidden) for (const f of tickers) f(); }, 1000);
+  return fn;
+}
+
+function stopTickers() {
+  tickers.clear();
+  clearInterval(tickTimer);
+  tickTimer = null;
+}
+
+// Pannun edistyminen: palkki + prosentit + arvio. onDone kutsutaan, kun 100 % saavutetaan (palvelin vaihtaa tilan).
+function brewProgress(m, onDone) {
+  const fill = h("span", { class: "brew-fill" });
+  const bar = h("div", { class: "brew-bar", role: "progressbar", "aria-valuemin": "0", "aria-valuemax": "100",
+    "aria-label": t("Pannun edistyminen") }, fill);
+  const pct = h("span", { class: "brew-pct" });
+  const eta = h("span", { class: "brew-eta" });
+  const el = h("div", { class: "brew-progress" }, bar, h("div", { class: "brew-info" }, pct, eta));
+  let doneAt = 0;
+  const update = () => {
+    const now = Date.now() / 1000;
+    const start = m.updated_at || now, end = m.brew_ready_at || now;
+    const p = end > start ? Math.min(1, Math.max(0, (now - start) / (end - start))) : 1;
+    const n = Math.floor(p * 100);
+    fill.style.width = `${n}%`;
+    bar.setAttribute("aria-valuenow", String(n));
+    pct.textContent = `${n} %`;
+    eta.textContent = brewEta(m);
+    // Palvelin tarkistaa valmistumisen ~15 s välein: kysytään uutta tilaa korkeintaan 10 s välein
+    if (p >= 1 && onDone && now - doneAt > 10) { doneAt = now; setTimeout(onDone, 3000); }
+  };
+  update();
+  return { el, tick: addTicker(update) };
+}
+
+// Nousevat kuplat "tulossa"-kortin taustalla
+function bubbles() {
+  return h("div", { class: "bubbles", "aria-hidden": "true" },
+    [1, 2, 3, 4, 5, 6, 7, 8].map((i) => h("span", { class: `b b${i}` })));
+}
+
+// Kortin tilaluokat: tulossa = animoitu reuna, on = kultainen reuna (tuore = hehkuu)
+function markCard(card, m) {
+  const mins = minutesSince(m.updated_at);
+  card.classList.toggle("brewing", m.status === "brewing");
+  card.classList.toggle("ready", m.status === "ready");
+  card.classList.toggle("fresh", m.status === "ready" && mins !== null && mins < FRESH_MINUTES);
 }
 
 function go(path) {
@@ -312,16 +380,26 @@ async function viewHome(app) {
   }
 
   const cards = [];
-  const render = (c) => c.card.replaceChildren(
-    h("div", { class: "status-row" },
-      h("a", { class: "title", href: `/m/${c.id}`, title: c.data.name }, c.data.name),
-      statusIcon(c.data),
-      h("span", { class: "mins" }, minutesText(c.data.updated_at))),
-    h("div", { class: "row status-meta" },
-      h("span", { class: "muted" }, statusText(c.data)),
-      c.data.org ? h("span", { class: "badge" }, c.data.org.name) : null,
-      c.data.wishes ? h("span", { class: "wishes" }, t("{n} toivoo kahvia", { n: c.data.wishes })) : null),
-  );
+  const render = (c) => {
+    if (c.tick) tickers.delete(c.tick);
+    c.tick = null;
+    const brewing = c.data.status === "brewing";
+    const progress = brewing ? brewProgress(c.data, () => refresh(c)) : null;
+    if (progress) c.tick = progress.tick;
+    markCard(c.card, c.data);
+    c.card.replaceChildren(
+      brewing ? bubbles() : "",
+      h("div", { class: "status-row" },
+        h("a", { class: "title", href: `/m/${c.id}`, title: c.data.name }, c.data.name),
+        statusIcon(c.data),
+        h("span", { class: "mins" }, minutesText(c.data.updated_at))),
+      h("div", { class: "row status-meta" },
+        h("span", { class: "muted" }, statusText(c.data)),
+        c.data.org ? h("span", { class: "badge" }, c.data.org.name) : null,
+        c.data.wishes ? h("span", { class: "wishes" }, t("{n} toivoo kahvia", { n: c.data.wishes })) : null),
+      progress ? progress.el : "",
+    );
+  };
   const refresh = (c) => api(`/api/machines/${c.id}`).then((data) => { c.data = data; render(c); }).catch(() => render(c));
 
   for (const m of machines) {
@@ -340,7 +418,7 @@ async function viewHome(app) {
       cards.push(c);
       render(c);
       attachSwipe(wrap, card, {
-        left: () => quickStatus(c.id, "brewing", c.data.full_pot_cups).then(() => refresh(c)),
+        left: () => quickStatus(c.id, "brewing", { quick: true }).then(() => refresh(c)),
         right: () => doWish(c.id).then(() => refresh(c)),
       });
     }).catch((e) => {
@@ -372,9 +450,9 @@ async function viewHome(app) {
   }, 60000);
 }
 
-async function quickStatus(id, status, cups = null) {
+async function quickStatus(id, status, extra = {}) {
   try {
-    await api(`/api/machines/${id}/status`, { method: "POST", body: { status, cups, device_id: deviceId() } });
+    await api(`/api/machines/${id}/status`, { method: "POST", body: { status, ...extra, device_id: deviceId() } });
     toast(t("Kiitos! Seuraajat saavat ilmoituksen."));
   } catch (e) { toast(e.message); }
 }
@@ -520,14 +598,21 @@ async function viewMachine(app, id) {
     return;
   }
 
-  const cupsInput = h("input", { type: "number", min: "1", max: "999", value: String(m.full_pot_cups), inputmode: "numeric" });
+  const cupsInput = h("input", { id: "brew-cups", type: "number", min: "1", max: "999", inputmode: "numeric",
+    value: String(m.last_brew_cups || m.full_pot_cups) });
+  const lastType = m.coffee_types.includes(m.last_brew_type) ? m.last_brew_type : m.coffee_types[0];
+  const typeSelect = h("select", { id: "brew-type" },
+    m.coffee_types.map((ct) => h("option", { value: ct, selected: ct === lastType }, t(ct))));
   const cupsBox = h("div", { class: "card hidden" },
-    h("label", {}, t("Montako kuppia tulossa?")), cupsInput,
-    h("button", { onclick: () => setStatus("brewing", parseInt(cupsInput.value, 10) || null) }, t("Ilmoita")));
+    h("label", { for: "brew-type" }, t("Mitä kahvia?")), typeSelect,
+    h("label", { for: "brew-cups" }, t("Montako kuppia tulossa?")), cupsInput,
+    h("button", {
+      onclick: () => setStatus("brewing", { cups: parseInt(cupsInput.value, 10) || null, coffee_type: typeSelect.value }),
+    }, t("Ilmoita")));
 
-  async function setStatus(status, cups = null) {
+  async function setStatus(status, extra = {}) {
     try {
-      await api(`/api/machines/${id}/status`, { method: "POST", body: { status, cups, device_id: deviceId() } });
+      await api(`/api/machines/${id}/status`, { method: "POST", body: { status, ...extra, device_id: deviceId() } });
       toast(t("Kiitos! Seuraajat saavat ilmoituksen."));
       route();
     } catch (e) { toast(e.message); }
@@ -538,6 +623,16 @@ async function viewMachine(app, id) {
       class: m.status === key ? "active" : "",
       onclick: () => key === "brewing" ? cupsBox.classList.toggle("hidden") : setStatus(key),
     }, statusIcon({ status: key, updated_at: Date.now() / 1000 }, "icon-btn"), h("span", {}, t(label))));
+
+  const progress = m.status === "brewing" ? brewProgress(m, () => route()) : null;
+  const statusCard = h("div", { class: "card status-card" },
+    m.status === "brewing" ? bubbles() : "",
+    h("div", { class: "status-big" }, statusIcon(m, "icon-big"), h("span", {}, statusText(m))),
+    progress ? progress.el : "",
+    h("div", { class: "row" },
+      h("span", { class: "muted" }, m.updated_at ? t("Päivitetty {ago}", { ago: ago(m.updated_at) }) : ""),
+      m.wishes ? h("span", { class: "wishes" }, t("{n} toivoo kahvia", { n: m.wishes })) : null));
+  markCard(statusCard, m);
 
   const isFollowing = followed().includes(id);
   const followBtn = h("button", {
@@ -555,11 +650,7 @@ async function viewMachine(app, id) {
   app.append(
     h("h1", {}, m.name),
     m.org ? h("p", {}, h("a", { class: "badge", href: `/org/${m.org.id}` }, m.org.name)) : "",
-    h("div", { class: "card" },
-      h("div", { class: "status-big" }, statusIcon(m, "icon-big"), h("span", {}, statusText(m))),
-      h("div", { class: "row" },
-        h("span", { class: "muted" }, m.updated_at ? t("Päivitetty {ago}", { ago: ago(m.updated_at) }) : ""),
-        m.wishes ? h("span", { class: "wishes" }, t("{n} toivoo kahvia", { n: m.wishes })) : null)),
+    statusCard,
     h("button", { class: "wish", onclick: () => doWish(id).then(() => route()) }, t("Oispa kahvia!")),
     h("h2", {}, t("Päivitä tilanne")),
     h("div", { class: "grid" }, buttons),
@@ -585,21 +676,37 @@ async function viewMachine(app, id) {
 
 // Keittimen asetukset (luoja tai organisaation ylläpitäjä)
 function machineSettings(m) {
-  const pot = h("input", { type: "number", min: "1", max: "999", value: String(m.full_pot_cups), inputmode: "numeric", required: true });
+  const pot = h("input", { id: "set-pot", type: "number", min: "1", max: "999", value: String(m.full_pot_cups), inputmode: "numeric", required: true });
+  const brewTime = h("input", { id: "set-brew", type: "number", min: "0", max: "30", step: "0.5", inputmode: "decimal",
+    value: String(m.brew_min_per_cup), required: true });
+  // Oletustyypit näytetään käyttäjän kielellä; tallennettaessa käännös muutetaan takaisin avaimeksi
+  const shown = m.coffee_types.map((ct) => t(ct));
+  const types = h("textarea", { id: "set-types", rows: "4", maxlength: "300" });
+  types.value = shown.join("\n");
   return h("details", { class: "card" },
     h("summary", {}, t("Keittimen asetukset")),
     h("form", {
       onsubmit: async (ev) => {
         ev.preventDefault();
+        const coffee_types = types.value.split("\n").map((x) => x.trim()).filter(Boolean)
+          .map((x) => { const i = shown.indexOf(x); return i >= 0 ? m.coffee_types[i] : x; });
+        if (!coffee_types.length) { toast(t("Anna vähintään yksi kahvityyppi")); return; }
         try {
-          await api(`/api/machines/${m.id}/settings`, { method: "POST", body: { full_pot_cups: parseInt(pot.value, 10) } });
+          await api(`/api/machines/${m.id}/settings`, { method: "POST", body: {
+            full_pot_cups: parseInt(pot.value, 10),
+            brew_min_per_cup: parseFloat(String(brewTime.value).replace(",", ".")),
+            coffee_types,
+          } });
           toast(t("Asetus tallennettu"));
           route();
         } catch (e) { toast(e.message); }
       },
     },
-      h("label", {}, t("Täysi pannu (kuppia)")), pot,
-      h("p", { class: "muted" }, t("Tätä käytetään, kun kahvia ilmoitetaan tulevaksi pyyhkäisemällä etusivulla.")),
+      h("label", { for: "set-pot" }, t("Täysi pannu (kuppia)")), pot,
+      h("p", { class: "muted" }, t("Tätä käytetään pikailmoituksessa, jos keittimellä ei ole vielä aiempia pannuja.")),
+      h("label", { for: "set-brew" }, t("Keittoaika (min / kuppi)")), brewTime,
+      h("p", { class: "muted" }, t("Kun keittoaika on kulunut, tila vaihtuu itsestään: kahvia on. 0 = kahvi on valmista heti, kun keitin on ladattu.")),
+      h("label", { for: "set-types" }, t("Kahvityypit (yksi per rivi, enintään 8)")), types,
       h("button", { type: "submit" }, t("Tallenna"))));
 }
 
@@ -1022,6 +1129,7 @@ const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 async function route() {
   clearInterval(homeTimer);
   homeTimer = null;
+  stopTickers();
   const app = document.getElementById("app");
   app.replaceChildren();
   const p = location.pathname;

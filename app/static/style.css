@@ -162,3 +162,67 @@ footer p { margin: 12px 0 0; }
   body, main { background: #fff; }
   .qr { border: 2px dashed #999; }
 }
+
+/* ---------- pannun tila korteissa ---------- */
+
+textarea { font: inherit; width: 100%; padding: 12px; border-radius: 12px; border: 1px solid var(--line);
+  background: var(--card); color: var(--ink); margin: 6px 0 12px; resize: vertical; box-sizing: border-box; }
+
+/* Kahvia tulossa: kiertävä liukuvärireuna (reuna = tausta border-boxissa, sisältö padding-boxissa) */
+@property --brew-angle { syntax: "<angle>"; initial-value: 0deg; inherits: false; }
+.card.brewing {
+  position: relative; isolation: isolate; overflow: hidden;
+  border: 2px solid transparent;
+  background:
+    linear-gradient(var(--card), var(--card)) padding-box,
+    conic-gradient(from var(--brew-angle), var(--accent), #f6d08b, var(--coffee), #f6d08b, var(--accent)) border-box;
+  animation: brew-spin 3s linear infinite;
+}
+@keyframes brew-spin { to { --brew-angle: 360deg; } }
+
+/* Kuplat: kortin sisällön takana (z-index -1 + isolation) */
+.bubbles { position: absolute; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; }
+.bubbles .b {
+  position: absolute; bottom: -24px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, rgba(255,255,255,.9), rgba(200,121,43,.35) 60%, rgba(200,121,43,.15));
+  border: 1px solid rgba(200,121,43,.35);
+  animation: bubble-rise linear infinite; opacity: 0;
+}
+.bubbles .b1 { left: 6%;  width: 10px; height: 10px; animation-duration: 5.5s; animation-delay: 0s; }
+.bubbles .b2 { left: 18%; width: 6px;  height: 6px;  animation-duration: 4.2s; animation-delay: 1.3s; }
+.bubbles .b3 { left: 31%; width: 14px; height: 14px; animation-duration: 6.4s; animation-delay: .6s; }
+.bubbles .b4 { left: 47%; width: 8px;  height: 8px;  animation-duration: 4.8s; animation-delay: 2.1s; }
+.bubbles .b5 { left: 60%; width: 12px; height: 12px; animation-duration: 5.9s; animation-delay: 3.0s; }
+.bubbles .b6 { left: 72%; width: 7px;  height: 7px;  animation-duration: 4.5s; animation-delay: .9s; }
+.bubbles .b7 { left: 84%; width: 11px; height: 11px; animation-duration: 6.1s; animation-delay: 2.6s; }
+.bubbles .b8 { left: 93%; width: 6px;  height: 6px;  animation-duration: 3.9s; animation-delay: 1.8s; }
+@keyframes bubble-rise {
+  0%   { transform: translate(0, 0) scale(.6); opacity: 0; }
+  12%  { opacity: .9; }
+  50%  { transform: translate(6px, -90px) scale(1); }
+  85%  { opacity: .6; }
+  100% { transform: translate(-4px, -190px) scale(1.1); opacity: 0; }
+}
+
+/* Edistyminen */
+.brew-progress { margin-top: 10px; }
+.brew-bar { height: 8px; border-radius: 999px; background: var(--line); overflow: hidden; }
+.brew-fill { display: block; height: 100%; width: 0; border-radius: 999px;
+  background: linear-gradient(90deg, var(--coffee), var(--accent)); transition: width 1s linear; }
+.brew-info { display: flex; justify-content: space-between; gap: 10px; margin-top: 6px; font-size: .88rem; }
+.brew-pct { font-weight: 800; font-variant-numeric: tabular-nums; color: var(--ink); }
+.brew-eta { color: var(--muted); }
+
+/* Kahvia on: kultainen reuna, tuore pannu hehkuu */
+.card.ready { border: 2px solid #d9a521; }
+.card.ready.fresh { border-color: #f2c230; box-shadow: 0 0 0 3px rgba(242,194,48,.25), 0 0 18px rgba(242,194,48,.45); }
+@media (prefers-color-scheme: dark) {
+  .card.ready { border-color: #e0b33a; }
+  .card.ready.fresh { border-color: #ffd54a; box-shadow: 0 0 0 3px rgba(255,213,74,.2), 0 0 22px rgba(255,213,74,.35); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card.brewing { animation: none; }
+  .bubbles { display: none; }
+  .brew-fill { transition: none; }
+}

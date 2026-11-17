@@ -114,6 +114,61 @@ def run():
     check("pelkät välilyönnit 422", anon.call("POST", "/api/machines", {"name": "   "})[0] == 422)
     s, m = anon.call("POST", "/api/machines", {"name": "Keitin\u202e\x00\n  2"})
     check("ohjausmerkit siivotaan nimestä", s == 201 and m["name"] == "Keitin 2", m)
+
+    # ---------- kahvityyppi, "ehkä", keittoaika, automaattinen valmistuminen ----------
+    dev = {"X-Device-Id": anon.device}
+    s, bm = anon.call("POST", "/api/machines", {"name": "Pannutesti", "device_id": anon.device})
+    bid = bm["id"]
+    check("oletustyypit ja keittoaika 1 min/kuppi",
+          bm["coffee_types"] == ["Tavallinen", "Tumma paahto", "Kofeiiniton"] and bm["brew_min_per_cup"] == 1.0, bm)
+    check("keittoaika > 30 min/kuppi 422",
+          anon.call("POST", f"/api/machines/{bid}/settings", {"brew_min_per_cup": 31}, headers=dev)[0] == 422)
+    check("tyhjä tyyppilista 422",
+          anon.call("POST", f"/api/machines/{bid}/settings", {"coffee_types": []}, headers=dev)[0] == 422)
+    s, bm = anon.call("POST", f"/api/machines/{bid}/settings",
+                      {"coffee_types": ["Tumma paahto", "  Vaalea\n ", "vaalea"]}, headers=dev)
+    check("tyypit siivotaan ja tuplat poistetaan", s == 200 and bm["coffee_types"] == ["Tumma paahto", "Vaalea"], bm)
+    check("muut asetukset säilyvät osittaisessa päivityksessä", bm["full_pot_cups"] == 10 and bm["brew_min_per_cup"] == 1.0, bm)
+    check("eve ei saa muuttaa tyyppejä",
+          eve.call("POST", f"/api/machines/{bid}/settings", {"coffee_types": ["x"]}, headers={"X-Device-Id": eve.device})[0] == 403)
+    check("tuntematon tyyppi 400", anon.call("POST", f"/api/machines/{bid}/status",
+          {"status": "brewing", "cups": 4, "coffee_type": "Olut", "device_id": anon.device})[0] == 400)
+    wait_rate_limit()
+    t0 = time.time()
+    s, bm = anon.call("POST", f"/api/machines/{bid}/status",
+                      {"status": "brewing", "cups": 4, "coffee_type": "Vaalea", "device_id": anon.device})
+    check("valikosta: tyyppi + kupit, ei 'ehkä'",
+          s == 200 and bm["status"] == "brewing" and bm["cups"] == 4 and bm["brew_type"] == "Vaalea" and not bm["estimated"], bm)
+    check("valmistumisaika = 4 kuppia x 1 min", abs(bm["brew_ready_at"] - (t0 + 240)) < 5, bm)
+    wait_rate_limit()
+    s, bm = anon.call("POST", f"/api/machines/{bid}/status", {"status": "brewing", "quick": True, "cups": 99, "device_id": anon.device})
+    check("pikailmoitus: edelliset arvot + 'ehkä' (asiakkaan kupit ohitetaan)",
+          bm["cups"] == 4 and bm["brew_type"] == "Vaalea" and bm["estimated"] is True, bm)
+    # Siirretään valmistumisaika menneisyyteen -> taustasilmukka vaihtaa tilan
+    import sqlite3
+    dbc = sqlite3.connect(os.environ["COFFEENOW_DB"])
+    dbc.execute("UPDATE machines SET brew_ready_at = ? WHERE id = ?", (time.time() - 1, bid))
+    dbc.commit()
+    for _ in range(30):
+        bm = anon.call("GET", f"/api/machines/{bid}")[1]
+        if bm["status"] == "ready":
+            break
+        time.sleep(0.2)
+    check("keittoajan jälkeen tila vaihtuu itsestään: kahvia on",
+          bm["status"] == "ready" and bm["brew_ready_at"] is None and bm["brew_type"] == "Vaalea" and bm["cups"] == 4, bm)
+    wait_rate_limit()
+    bm = anon.call("POST", f"/api/machines/{bid}/status", {"status": "empty", "device_id": anon.device})[1]
+    check("kahvi loppu tyhjentää pannun tiedot", bm["cups"] is None and bm["brew_type"] is None and not bm["estimated"], bm)
+    anon.call("POST", f"/api/machines/{bid}/settings", {"brew_min_per_cup": 0}, headers=dev)
+    wait_rate_limit()
+    bm = anon.call("POST", f"/api/machines/{bid}/status",
+                   {"status": "brewing", "cups": 2, "coffee_type": "Tumma paahto", "device_id": anon.device})[1]
+    check("keittoaika 0: kahvi on heti valmista", bm["status"] == "ready" and bm["brew_type"] == "Tumma paahto"
+          and bm["cups"] == 2 and bm["brew_ready_at"] is None, bm)
+    s, bm = anon.call("POST", f"/api/machines/{bid}/settings", {"brew_min_per_cup": 1.26}, headers=dev)
+    check("keittoaika pyöristetään puoleen minuuttiin", bm["brew_min_per_cup"] == 1.5, bm)
+    s, bm = anon.call("POST", f"/api/machines/{pub['id']}/settings", {"full_pot_cups": 144}, headers=dev)
+    check("vanha asiakas (vain full_pot_cups) toimii yhä", s == 200 and bm["coffee_types"][0] == "Tavallinen", bm)
     sub = fake_subscription("ssrf")
     for bad in ("https://example.com/x", "https://127.0.0.1/x", "https://push.invalid.evil.com/x", "https://push.invalid:8443/x"):
         sub["endpoint"] = bad
@@ -335,7 +390,7 @@ def main():
     tmpdir = tempfile.mkdtemp(prefix="coffeenow-test-")
     vapid = subprocess.run([sys.executable, str(ROOT / "scripts" / "gen_vapid.py")], capture_output=True, text=True, check=True)
     env = dict(os.environ, COFFEENOW_DB=os.path.join(tmpdir, "test.db"), COOKIE_SECURE="0",
-               PUSH_ALLOWED_HOSTS="push.invalid,fcm.googleapis.com")
+               PUSH_ALLOWED_HOSTS="push.invalid,fcm.googleapis.com", BREW_CHECK_INTERVAL="0.5")
     for line in vapid.stdout.splitlines():
         k, v = line.split("=", 1)
         env[k] = v

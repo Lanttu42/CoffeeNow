@@ -4,8 +4,12 @@ Keitin on joko
 - julkinen (org_id NULL): kuka tahansa QR-koodin skannaava voi lukea ja päivittää
 - yksityinen (org_id asetettu): vain organisaation jäsenet. Ulkopuolinen ei näe edes nimeä.
 """
+import asyncio
 import hashlib
 import io
+import json
+import logging
+import os
 import time
 import uuid
 from pathlib import Path
@@ -15,12 +19,14 @@ import segno
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from pydantic import BaseModel, Field, field_validator
 
 from . import auth, db, i18n, notify, orgs, push, security
 
 STATIC = Path(__file__).parent / "static"
+log = logging.getLogger("coffeenow")
 
 # Versio: VERSION näytetään käyttäjälle, BUILD (hash staattisista tiedostoista) muuttuu aina kun frontend muuttuu.
 # Selain vertaa lataamaansa BUILDia palvelimen BUILDiin ja pyytää päivittämään, jos ne eroavat.
@@ -46,6 +52,12 @@ BREW_CANCEL_WINDOW = 5 * 60  # loppu/vähissä tätä nopeammin pannun jälkeen 
 TOP_N = 10
 DEFAULT_FULL_POT = 10       # kuppia; keitinkohtainen asetus machines.full_pot_cups
 MAX_CUPS = 999
+DEFAULT_BREW_MIN_PER_CUP = 1.0   # keittoaika min/kuppi; keitinkohtainen asetus machines.brew_min_per_cup
+MAX_BREW_MIN_PER_CUP = 30.0
+# Oletuskahvityypit (suomenkieliset avaimet, käännökset i18n:ssä). Keitinkohtainen lista: machines.coffee_types
+DEFAULT_COFFEE_TYPES = ["Tavallinen", "Tumma paahto", "Kofeiiniton"]
+MAX_COFFEE_TYPES = 8
+BREW_CHECK_INTERVAL = float(os.environ.get("BREW_CHECK_INTERVAL", 15))  # "tulossa" -> "on" -tarkistuksen väli (s)
 RATE_LIMIT_SECONDS = 5       # sama IP ei voi hakata samaa keitintä tätä tiheämmin
 
 Status = Literal["ready", "brewing", "low", "empty", "supplies_low", "supplies_out"]
@@ -67,9 +79,20 @@ create_limiter = security.Limiter(20, 3600, "Liian monta uutta keitintä tästä
 follow_limiter = security.Limiter(60, 3600, "Liian monta tilausta tästä osoitteesta. Yritä myöhemmin.")
 
 
+_brew_task: asyncio.Task | None = None
+
+
 @app.on_event("startup")
-def _startup() -> None:
+async def _startup() -> None:
+    global _brew_task
     db.init()
+    _brew_task = asyncio.create_task(_brew_loop())
+
+
+@app.on_event("shutdown")
+async def _shutdown() -> None:
+    if _brew_task:
+        _brew_task.cancel()
 
 
 @app.exception_handler(StarletteHTTPException)
@@ -138,6 +161,30 @@ def _can_edit(row, mem, user, request: Request | None) -> bool:
     return bool(8 <= len(device) <= 64 and row["creator_device_hash"] == security.hash_device(device))
 
 
+def _coffee_types(row) -> list[str]:
+    try:
+        types = json.loads(row["coffee_types"]) if row["coffee_types"] else None
+    except ValueError:
+        types = None
+    return types if isinstance(types, list) and types else list(DEFAULT_COFFEE_TYPES)
+
+
+def _brew_min_per_cup(row) -> float:
+    v = row["brew_min_per_cup"]
+    return DEFAULT_BREW_MIN_PER_CUP if v is None else float(v)
+
+
+def _details(cups: int | None, coffee_type: str | None, estimated: bool, lang: str) -> str:
+    """ " (10 kuppia, Tumma paahto) (ehkä)" käyttäjän kielellä."""
+    parts = []
+    if cups:
+        parts.append(i18n.tr("{n} kuppia", lang, n=cups))
+    if coffee_type:
+        parts.append(i18n.tr(coffee_type, lang))
+    out = f" ({', '.join(parts)})" if parts else ""
+    return out + (i18n.tr(" (ehkä)", lang) if estimated and out else "")
+
+
 def _machine_json(con, row, mem, user=None, request: Request | None = None) -> dict:
     wishes = con.execute(
         "SELECT COUNT(*) FROM wishes WHERE machine_id = ? AND created_at > ?",
@@ -156,6 +203,13 @@ def _machine_json(con, row, mem, user=None, request: Request | None = None) -> d
         "wishes": wishes,
         "org": org,
         "full_pot_cups": row["full_pot_cups"] or DEFAULT_FULL_POT,
+        "brew_type": row["brew_type"],
+        "estimated": bool(row["brew_estimated"]),
+        "brew_ready_at": row["brew_ready_at"],
+        "last_brew_type": row["last_brew_type"],
+        "last_brew_cups": row["last_brew_cups"],
+        "brew_min_per_cup": _brew_min_per_cup(row),
+        "coffee_types": _coffee_types(row),
         "can_edit": _can_edit(row, mem, user, request),
     }
 
@@ -176,11 +230,30 @@ class NewMachine(BaseModel):
 class StatusUpdate(BaseModel):
     status: Status
     cups: int | None = Field(default=None, ge=1, le=MAX_CUPS)
+    coffee_type: str | None = Field(default=None, max_length=60)
+    quick: bool = False      # pikailmoitus (pyyhkäisy): kuppimäärä ja tyyppi edellisestä pannusta, merkitään "ehkä"
     device_id: str = Field(min_length=8, max_length=64)
 
 
 class MachineSettings(BaseModel):
-    full_pot_cups: int = Field(ge=1, le=MAX_CUPS)
+    """Kaikki kentät valinnaisia: puuttuva = ennallaan."""
+    full_pot_cups: int | None = Field(default=None, ge=1, le=MAX_CUPS)
+    brew_min_per_cup: float | None = Field(default=None, ge=0, le=MAX_BREW_MIN_PER_CUP)
+    coffee_types: list[str] | None = Field(default=None, min_length=1, max_length=MAX_COFFEE_TYPES)
+
+    @field_validator("coffee_types")
+    @classmethod
+    def _clean_types(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return None
+        out: list[str] = []
+        for name in v:
+            name = security.clean_name(name)
+            if len(name) > 30:
+                raise ValueError("Kahvityypin nimi saa olla enintään 30 merkkiä")
+            if name.lower() not in (o.lower() for o in out):
+                out.append(name)
+        return out
 
 
 class DeviceOnly(BaseModel):
@@ -267,21 +340,50 @@ def machine_settings(machine_id: str, body: MachineSettings, request: Request):
         row, mem, user = _load_authorized(con, machine_id, request)
         if not _can_edit(row, mem, user, request):
             raise HTTPException(403, "Vain keittimen luoja tai ylläpitäjä voi muuttaa asetuksia")
-        con.execute("UPDATE machines SET full_pot_cups = ? WHERE id = ?", (body.full_pot_cups, machine_id))
+        if body.full_pot_cups is not None:
+            con.execute("UPDATE machines SET full_pot_cups = ? WHERE id = ?", (body.full_pot_cups, machine_id))
+        if body.brew_min_per_cup is not None:
+            # puolen minuutin tarkkuus riittää
+            con.execute("UPDATE machines SET brew_min_per_cup = ? WHERE id = ?",
+                        (round(body.brew_min_per_cup * 2) / 2, machine_id))
+        if body.coffee_types is not None:
+            con.execute("UPDATE machines SET coffee_types = ? WHERE id = ?",
+                        (json.dumps(body.coffee_types, ensure_ascii=False), machine_id))
         return _machine_json(con, _get_machine(con, machine_id), mem, user, request)
 
 
 @app.post("/api/machines/{machine_id}/status")
 def set_status(machine_id: str, body: StatusUpdate, request: Request, bg: BackgroundTasks):
     machine_id = _valid_id(machine_id)
-    cups = body.cups if body.status == "brewing" else None
     with db.connect() as con:
         row, mem, user = _load_authorized(con, machine_id, request)
         _rate_limit(request, machine_id)
         now = time.time()
+        status, cups, ctype, estimated, ready_at = body.status, None, None, False, None
+        if body.status == "brewing":
+            types = _coffee_types(row)
+            if body.quick:
+                # Pikailmoitus: edellisen pannun arvot, merkitään arvioiduksi
+                cups = row["last_brew_cups"] or row["full_pot_cups"] or DEFAULT_FULL_POT
+                ctype = row["last_brew_type"] if row["last_brew_type"] in types else types[0]
+                estimated = True
+            else:
+                cups = body.cups or row["last_brew_cups"] or row["full_pot_cups"] or DEFAULT_FULL_POT
+                ctype = body.coffee_type.strip() if body.coffee_type else None
+                if ctype and ctype not in types:
+                    raise HTTPException(400, "Tuntematon kahvityyppi")
+            ready_at = now + cups * _brew_min_per_cup(row) * 60
+            con.execute("UPDATE machines SET last_brew_cups = ?, last_brew_type = COALESCE(?, last_brew_type) WHERE id = ?",
+                        (cups, ctype, machine_id))
+            if ready_at <= now:  # keittoaika 0: kahvi on heti valmista
+                status, ready_at = "ready", None
+        elif body.status == "ready" and row["status"] == "brewing":
+            # "tulossa" -> "on" käsin: pannun tiedot säilyvät
+            cups, ctype, estimated = row["cups"], row["brew_type"], bool(row["brew_estimated"])
         con.execute(
-            "UPDATE machines SET status = ?, cups = ?, updated_at = ? WHERE id = ?",
-            (body.status, cups, now, machine_id),
+            "UPDATE machines SET status = ?, cups = ?, updated_at = ?, brew_type = ?, brew_estimated = ?, brew_ready_at = ?"
+            " WHERE id = ?",
+            (status, cups, now, ctype, int(estimated), ready_at, machine_id),
         )
         # Pannu kirjautuneelle: "tulossa", tai "on" ilman edeltävää "tulossa"-ilmoitusta (keitti ilmoittamatta)
         brewed = body.status == "brewing" or (body.status == "ready" and row["status"] != "brewing")
@@ -299,11 +401,53 @@ def set_status(machine_id: str, body: StatusUpdate, request: Request, bg: Backgr
         result = _machine_json(con, _get_machine(con, machine_id), mem)
 
     def text(lang: str) -> str:
-        t = i18n.tr(STATUS_TEXT[body.status], lang)
-        return t + i18n.tr(" ({n} kuppia)", lang, n=cups) if cups else t
+        t = i18n.tr(STATUS_TEXT[status], lang) + _details(cups, ctype, estimated, lang)
+        if status == "brewing" and ready_at:
+            t += i18n.tr(" – valmis noin {n} min päästä.", lang, n=max(1, round((ready_at - now) / 60)))
+        return t
 
-    bg.add_task(notify.status_changed, machine_id, body.status, row["name"], text, body.device_id)
+    bg.add_task(notify.status_changed, machine_id, status, row["name"], text, body.device_id)
     return result
+
+
+# ---------- "tulossa" -> "on" keittoajan jälkeen ----------
+
+def _finish_due_brews() -> list:
+    """Siirtää valmistuneet pannut "on"-tilaan. UPDATE ehdollinen, joten sama pannu valmistuu vain kerran."""
+    now = time.time()
+    done = []
+    with db.connect() as con:
+        rows = con.execute(
+            "SELECT id, name, cups, brew_type, brew_estimated, brew_ready_at FROM machines"
+            " WHERE status = 'brewing' AND brew_ready_at IS NOT NULL AND brew_ready_at <= ?", (now,)
+        ).fetchall()
+        for r in rows:
+            cur = con.execute(
+                "UPDATE machines SET status = 'ready', updated_at = ?, brew_ready_at = NULL"
+                " WHERE id = ? AND status = 'brewing' AND brew_ready_at = ?",
+                (r["brew_ready_at"], r["id"], r["brew_ready_at"]),
+            )
+            if cur.rowcount:
+                done.append(dict(r))
+    return done
+
+
+async def finish_brews_once() -> int:
+    finished = await run_in_threadpool(_finish_due_brews)
+    for r in finished:
+        def text(lang: str, r=r) -> str:
+            return i18n.tr("Kahvi on valmista!", lang) + _details(r["cups"], r["brew_type"], bool(r["brew_estimated"]), lang)
+        await notify.status_changed(r["id"], "ready", r["name"], text, None)
+    return len(finished)
+
+
+async def _brew_loop() -> None:
+    while True:
+        try:
+            await finish_brews_once()
+        except Exception:  # yksittäinen virhe ei saa pysäyttää silmukkaa
+            log.exception("Pannujen valmistumisen tarkistus epäonnistui")
+        await asyncio.sleep(BREW_CHECK_INTERVAL)
 
 
 @app.get("/api/machines/{machine_id}/top")
